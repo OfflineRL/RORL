@@ -1,7 +1,10 @@
+import math
+
 import numpy as np
 import torch
 from torch import nn as nn
 from torch.nn import functional as F
+from torch.nn import init
 
 from lifelong_rl.torch import pytorch_util as ptu
 from lifelong_rl.torch.modules import LayerNorm
@@ -11,6 +14,273 @@ def identity(x):
     return x
 
 
+class BatchEnsembleLinear(nn.Module):
+    """ Batch ensemble linear layer"""
+
+    def __init__(self, input_size, output_size, ensemble_size, bias=True):
+        super().__init__()
+        self.in_features = input_size
+        self.out_features = output_size
+        self.ensemble_size = ensemble_size
+
+        self.W = nn.Parameter(torch.empty(output_size, input_size))  # m*n
+        self.r = nn.Parameter(torch.empty(ensemble_size, input_size))  # M*m
+        self.s = nn.Parameter(torch.empty(ensemble_size, output_size))  # M*n
+
+        if bias:
+            self.bias = nn.Parameter(torch.empty(ensemble_size, output_size))
+        else:
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def forward(self, X):
+        """
+        Expects input in shape (B*M, C_in), dim 0 layout:
+            ------ x0, model 0 ------
+            -------x0, model 1 ------
+                      ...
+            ------ x1, model 0 ------
+            -------x1, model 1 ------
+                      ...
+        """
+        B = X.shape[0] // self.ensemble_size
+        R = self.r.repeat(B, 1)
+        S = self.s.repeat(B, 1)
+        bias = self.bias.repeat(B, 1)
+        # Eq. 5 from BatchEnsembles paper
+        return torch.mm((X * R), self.W.T) * S + bias  # (B*M, C_out)
+
+    def reset_parameters(self):
+        nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
+
+        # Another way to initialize the fast weights
+        #nn.init.normal_(self.r, mean=1., std=0.1)
+        #nn.init.normal_(self.s, mean=1., std=0.1)
+
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias, -bound, bound)
+
+        with torch.no_grad():
+            self.r.bernoulli_(0.5).mul_(2).add_(-1)
+            self.s.bernoulli_(0.5).mul_(2).add_(-1)
+
+
+class BatchEnsembleFlattenMLP(nn.Module):
+
+    def __init__(
+            self,
+            ensemble_size,
+            hidden_sizes,
+            input_size,
+            output_size,
+            init_w=3e-3,
+            hidden_init=ptu.fanin_init,
+            w_scale=1,
+            b_init_value=0.1,
+            layer_norm=None,
+            batch_norm=False,
+            final_init_scale=None,
+            norm_input=False,
+            obs_norm_mean=None,
+            obs_norm_std=None,
+    ):
+        super().__init__()
+
+        self.ensemble_size = ensemble_size
+        self.input_size = input_size
+        self.output_size = output_size
+
+        self.sampler = np.random.default_rng()
+
+        self.hidden_activation = F.relu
+        self.output_activation = identity
+
+        self.layer_norm = layer_norm
+
+        self.norm_input = norm_input
+        if self.norm_input:
+            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(
+                obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
+
+        self.fcs = []
+
+        if batch_norm:
+            raise NotImplementedError
+
+        in_size = input_size
+        for i, next_size in enumerate(hidden_sizes):
+            fc = BatchEnsembleLinear(
+                ensemble_size=ensemble_size,
+                input_size=in_size,
+                output_size=next_size,
+            )
+            self.__setattr__('fc%d' % i, fc)
+            self.fcs.append(fc)
+            in_size = next_size
+
+        self.last_fc = BatchEnsembleLinear(
+            ensemble_size=ensemble_size,
+            input_size=in_size,
+            output_size=output_size,
+        )
+        if final_init_scale is None:
+            self.last_fc.W.data.uniform_(-init_w, init_w)
+            self.last_fc.bias.data.uniform_(-init_w, init_w)
+
+    def forward(self, *inputs, **kwargs):
+        """Calculate the forward pass of Q(s, a).
+
+        Args:
+            inputs: list[observation,action]: list of tensors containing the observation and action size B x obs_dim , B x act_dim 
+
+        Returns:
+            Q(s,a): return Q(s,a) size B x 1, where emsamble members output are stack along dim 0 [q_m0 , q_m1, ...,q_mN, q_m0, q_m1, ...]^T 
+        """
+
+        inputs = [inputs[0], inputs[1]]
+        if self.norm_input:
+            inputs[0] = (inputs[0] - self.obs_norm_mean) / self.obs_norm_std
+
+        flat_inputs = torch.cat(inputs, dim=-1)
+        dim = len(flat_inputs.shape)
+
+        # input normalization
+        h = flat_inputs
+
+        # standard feedforward network
+        for _, fc in enumerate(self.fcs):
+            h = fc(h)
+            h = self.hidden_activation(h)
+            if hasattr(self, 'layer_norm') and (self.layer_norm is not None):
+                h = self.layer_norm(h)
+        preactivation = self.last_fc(h)
+        output = self.output_activation(preactivation)
+
+        # if original dim was 1D, squeeze the extra created layer
+        if dim == 1:
+            output = output.squeeze(1)
+        return output
+
+    def sample(self, *inputs):
+        inputs = [inputs[0].repeat_interleave(
+            self.ensemble_size, 0), inputs[1].repeat_interleave(self.ensemble_size, 0)]
+        preds = self.forward(*inputs)
+        B = preds.shape[0] // self.ensemble_size
+        # (B*Self.ensemble_size,1) => (self.ensemble_size, B, 1)
+        preds = preds.view(self.ensemble_size, B, 1)
+        # Return min, mean and std of the ensemble
+        return preds.min(0)[0], preds.mean(0), preds.std(0)
+
+    def fit_input_stats(self, data, mask=None):
+        raise NotImplementedError
+
+
+class MimoEnsembleFlattenMLP(nn.Module):
+    def __init__(self,
+                 ensemble_size,
+                 hidden_sizes,
+                 input_size,
+                 output_size,
+                 init_w=3e-3,
+                 w_scale=1,
+                 b_init_value=0.1,
+                 layer_norm=None,
+                 batch_norm=False,
+                 final_init_scale=None,
+                 norm_input=False,
+                 obs_norm_mean=None,
+                 obs_norm_std=None,
+                 width_multiplier=1):
+        super(MimoEnsembleFlattenMLP, self).__init__()
+        self.ensemble_num = ensemble_size
+        self.hidden_activation = torch.tanh
+
+        self.input_layer = nn.Linear(
+            input_size*ensemble_size, hidden_sizes[0]*width_multiplier)
+        self.backbone_model = BackboneModel(
+            [layer_size*width_multiplier for layer_size in hidden_sizes], hidden_activation=self.hidden_activation)
+        self.norm_input = norm_input
+        if self.norm_input:
+            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(
+                obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
+        self.output_layer = nn.Linear(
+            hidden_sizes[-1]*width_multiplier, output_size * ensemble_size)
+        self.output_activation = identity
+        # initialize weights
+        init.xavier_uniform_(self.input_layer.weight)
+        self.input_layer.bias.data.fill_(0)
+        init.xavier_uniform_(self.output_layer.weight)
+        self.output_layer.bias.data.fill_(0)
+
+    def forward(self, *inputs, **kwargs):
+        """Calculate the forward pass of Q(s, a).
+
+        Inputs will be grouped by ensemble member, and then passed through the network. Each input will have a corresponding output. The network shares the same body 
+        for all inputs, but each input has its own head.
+
+        Args:
+            inputs: list[observation,action]: list of tensors containing the observation and action size B x obs_dim , B x act_dim 
+
+        Returns:
+            Q(s,a): return Q(s,a) size B x 1, where emsamble members output are stack along dim 0 [q_m0(x0) , q_m1(x1), ...,q_mN(xM), q_m0(xM+1), q_m1, ...]^T 
+        """
+        inputs = [inputs[0], inputs[1]]
+        if self.norm_input:
+            inputs[0] = (inputs[0] - self.obs_norm_mean) / self.obs_norm_std
+
+        inputs = torch.cat(inputs, dim=-1)
+
+        if kwargs.get("sample", None) == True:
+            inputs = inputs.repeat_interleave(self.ensemble_num, 0)
+
+        return self.forward_(inputs)
+
+    def forward_(self, input):
+        dim = len(input.shape)
+        # transform B*E to B//M*(E*M)
+        B, E, *_ = input.shape
+        M = self.ensemble_num
+        h = input.view(B//M, -1)
+
+        # standard feedforward network
+        h = self.input_layer(h)
+        h = self.hidden_activation(h)
+        h = self.backbone_model(h)
+        h = self.output_layer(h)
+        output = self.output_activation(h)
+
+        # if original dim was 1D, squeeze the extra created layer
+        if dim == 1:
+            output = output.squeeze(1)
+        return output.view(B, -1)
+
+    def sample(self, *inputs):
+        preds = self.forward(*inputs, sample=True)
+        B = preds.shape[0] // self.ensemble_num
+        return torch.min(preds.view(B, self.ensemble_num, -1), dim=1)
+
+
+class BackboneModel(nn.Module):
+    def __init__(self, hidden_dim, hidden_activation=F.relu):
+        super(BackboneModel, self).__init__()
+        self.hidden_activation = hidden_activation
+        for i, (in_dim, out_dim) in enumerate(zip(hidden_dim[:-1], hidden_dim[1:])):
+            self.add_module(f"l{i}", nn.Linear(in_dim, out_dim))
+        self.apply(self.init_weights)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        for _, layer in self.named_children():
+            x = layer(x)
+            x = self.hidden_activation(x)
+        return x
+
+    def init_weights(self, m):
+        if type(m) == nn.Linear:
+            nn.init.xavier_uniform_(m.weight)
+            m.bias.data.fill_(0.01)
 
 
 class Mlp(nn.Module):
@@ -42,8 +312,10 @@ class Mlp(nn.Module):
         self.batch_norms = []
 
         # data normalization
-        self.input_mu = nn.Parameter(ptu.zeros(input_size), requires_grad=False).float()
-        self.input_std = nn.Parameter(ptu.ones(input_size), requires_grad=False).float()
+        self.input_mu = nn.Parameter(
+            ptu.zeros(input_size), requires_grad=False).float()
+        self.input_std = nn.Parameter(
+            ptu.ones(input_size), requires_grad=False).float()
 
         in_size = input_size
         for i, next_size in enumerate(hidden_sizes):
@@ -119,7 +391,8 @@ class Ensemble(nn.Module):
         self.output_size = self.models[0].output_size
 
     def forward(self, input):
-        preds = ptu.zeros((len(self.models), *input.shape[:-1], self.output_size))
+        preds = ptu.zeros(
+            (len(self.models), *input.shape[:-1], self.output_size))
         for i in range(len(self.models)):
             preds[i] = self.models[i].forward(input)
         return preds
@@ -207,7 +480,7 @@ class ParallelizedEnsemble(nn.Module):
                 w_std_value=1/(2*np.sqrt(in_size)),
                 b_init_value=b_init_value,
             )
-            self.__setattr__('fc%d'% i, fc)
+            self.__setattr__('fc%d' % i, fc)
             self.fcs.append(fc)
             in_size = next_size
 
@@ -328,12 +601,13 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
 
         self.hidden_activation = F.relu
         self.output_activation = identity
-        
+
         self.layer_norm = layer_norm
 
         self.norm_input = norm_input
         if self.norm_input:
-            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
+            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(
+                obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
 
         self.fcs = []
 
@@ -350,7 +624,7 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
             for j in self.elites:
                 hidden_init(fc.W[j], w_scale)
                 fc.b[j].data.fill_(b_init_value)
-            self.__setattr__('fc%d'% i, fc)
+            self.__setattr__('fc%d' % i, fc)
             self.fcs.append(fc)
             in_size = next_size
 
@@ -374,8 +648,8 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
 
         flat_inputs = torch.cat(inputs, dim=-1)
         state_dim = inputs[0].shape[-1]
-        
-        dim=len(flat_inputs.shape)
+
+        dim = len(flat_inputs.shape)
         # repeat h to make amenable to parallelization
         # if dim = 3, then we probably already did this somewhere else
         # (e.g. bootstrapping in training optimization)
@@ -384,7 +658,7 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
             if dim == 1:
                 flat_inputs = flat_inputs.unsqueeze(0)
             flat_inputs = flat_inputs.repeat(self.ensemble_size, 1, 1)
-        
+
         # input normalization
         h = flat_inputs
 
