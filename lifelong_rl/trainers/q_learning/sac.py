@@ -522,6 +522,15 @@ class SACTrainerBatchEnsemble(TorchTrainer):
         preds = network(obs_temp, actions)
         preds = preds.view(-1, obs.shape[0], num_repeat, 1)
         return preds
+    
+
+    def _get_tensor_values(self, obs, actions, network=None):
+        action_shape = actions.shape[0]
+        obs_shape = obs.shape[0]
+        num_repeat = action_shape // obs_shape
+        obs_temp = obs.repeat_interleave(num_repeat, dim=0)
+        preds = network(obs_temp, actions)
+        preds = preds.view(-1, obs_shape, num_repeat, 1)
 
     def _get_policy_actions(self, obs, num_actions, network=None):
         obs_temp = obs.unsqueeze(1).repeat(1, num_actions,
@@ -537,13 +546,15 @@ class SACTrainerBatchEnsemble(TorchTrainer):
         
 
     def _get_noised_obs(self, obs, actions, eps):
-        M, N, A = obs.shape[0], obs.shape[1], actions.shape[1]
+        """Return noise observation size BatchSize*Num_sample*ObservationSize
+        """
+        M, N = obs.shape[0], obs.shape[1] 
+        A = actions.shape[1]
         size = self.num_samples
         delta_s = 2 * eps * self.obs_std * (torch.rand(size, N, device=ptu.device) - 0.5) 
-        tmp_obs = obs.reshape(-1, 1, N).repeat(1, size, 1).reshape(-1, N)
-        delta_s = delta_s.reshape(1, size, N).repeat(M, 1, 1).reshape(-1, N)
+        tmp_obs = obs.repeat_interleave(size,0).view(M,size,N)  
         noised_obs = tmp_obs + delta_s
-        return M, A, size, noised_obs, delta_s
+        return M, A, size, noised_obs.view(-1,N)
 
 
     def train_from_torch(self, batch, indices):
@@ -590,14 +601,18 @@ class SACTrainerBatchEnsemble(TorchTrainer):
 
         
         if self.policy_smooth_eps > 0 and self.policy_smooth_reg > 0:
-            M, A, size, noised_obs, delta_s = self._get_noised_obs(obs, actions, self.policy_smooth_eps)
+            M, A, size, noised_obs= self._get_noised_obs(obs, actions, self.policy_smooth_eps)
             _, noised_policy_mean, noised_policy_log_std, _, *_ = self.policy(noised_obs,reparameterize=True)
-            action_dist = torch.distributions.Normal(policy_mean.reshape(-1, 1, A).repeat(1, size, 1).reshape(-1, A), policy_log_std.exp().reshape(-1, 1, A).repeat(1, size, 1).reshape(-1, A))
+            action_dist = torch.distributions.Normal(policy_mean.repeat_interleave(size, dim=0),
+                                                    policy_log_std.exp().repeat_interleave(size, dim=0))
+                                                    
             noised_action_dist = torch.distributions.Normal(noised_policy_mean, noised_policy_log_std.exp())
             kl_loss = kl_divergence(action_dist, noised_action_dist).sum(axis=-1) + kl_divergence(noised_action_dist, action_dist).sum(axis=-1)
-            kl_loss = kl_loss.reshape(M, size)
-            max_id = torch.argmax(kl_loss, axis=1)
-            kl_loss_max = kl_loss[np.arange(M), max_id].mean()
+            kl_loss = kl_loss.view(M, size)
+            max_values, max_id = torch.max(kl_loss, dim=1)
+            kl_loss_max = torch.mean(max_values)
+            
+
             # noised_states_selected = noised_obs[np.arange(M), max_id]
             policy_loss += self.policy_smooth_reg * kl_loss_max
             if self._need_to_update_eval_statistics:
@@ -639,23 +654,24 @@ class SACTrainerBatchEnsemble(TorchTrainer):
         qfs_loss_total = qfs_loss
 
         if self.q_smooth_eps > 0 and self.q_smooth_reg > 0:
-            M, A, size, noised_obs, delta_s = self._get_noised_obs(obs, actions, self.q_smooth_eps)
-            # (batch_size*sample, output_size) Change to repeat_interleave
+            # M is original shape
+            M, A, size, noised_obs = self._get_noised_obs(obs, actions, self.q_smooth_eps)
+            #  (batch_size*sample, output_size) Change to repeat_interleave
             noised_qs_pred = self.qfs(noised_obs, actions.repeat_interleave(size, dim=0))
-            diff = noised_qs_pred - qs_pred.repeat_interleave(size, dim=0)
-            zero_tensor = torch.zeros(diff.shape, device=ptu.device)
-            pos, neg = torch.maximum(diff, zero_tensor), torch.minimum(diff, zero_tensor)
-            noise_Q_loss = (1-self.q_smooth_tau) *  pos.square() + self.q_smooth_tau * neg.square()
-            noise_Q_loss = noise_Q_loss.reshape(size,M).T
-            noise_Q_loss_max = noise_Q_loss[np.arange(M), torch.argmax(noise_Q_loss, axis=-1)].mean()
+            diff = (noised_qs_pred.view(M,size,-1) - qs_pred.view(M,1,-1)).view(M,size)            
+            pos = torch.clamp(diff, min=0)
+            neg = torch.clamp(diff, max=0)
+            noise_Q_loss = (1-self.q_smooth_tau) * pos.square() + self.q_smooth_tau * neg.square()
+            noise_Q_loss_max = torch.mean(torch.max(noise_Q_loss,dim=1)[0])  
             qfs_loss_total += self.q_smooth_reg * noise_Q_loss_max
+
             if self._need_to_update_eval_statistics:
                 self.eval_statistics['Q Smooth Loss'] = ptu.get_numpy(noise_Q_loss_max) * self.q_smooth_reg
                 
         if self.q_ood_reg > 0: # self.q_ood_eps = 0 for PBRL
             ood_loss = torch.zeros(1, device=ptu.device)[0]
             if self.q_ood_uncertainty_reg > 0:
-                M, A, size, noised_obs, delta_s = self._get_noised_obs(obs, actions, self.q_ood_eps)
+                M, A, size, noised_obs = self._get_noised_obs(obs, actions, self.q_ood_eps)
                 ood_actions, _, _, _, *_ = self.policy(noised_obs, reparameterize=False)
                 ood_qs_min,ood_qs_pred,ood_qs_std = self.qfs.sample(noised_obs, ood_actions)
                 # THANH: 
