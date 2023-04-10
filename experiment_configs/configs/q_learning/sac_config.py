@@ -82,7 +82,7 @@ def get_config(
             obs_norm_std=obs_norm_std,
         )
 
-        trainer = sac.SACTrainer(
+        trainer = sac.SACTrainerRank1(
             env=eval_env,
             policy=policy,
             qfs=qfs,
