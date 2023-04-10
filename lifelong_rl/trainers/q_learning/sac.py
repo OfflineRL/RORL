@@ -625,9 +625,10 @@ class SACTrainerRank1(TorchTrainer):
         )
 
         if not self.max_q_backup:
-            target_q_values = self.target_qfs.sample(next_obs, new_next_actions)
-            if not self.deterministic_backup:
-                target_q_values -= alpha * new_log_pi
+            with torch.no_grad():
+                target_q_values = self.target_qfs.sample(next_obs, new_next_actions)
+                if not self.deterministic_backup:
+                    target_q_values -= alpha * new_log_pi
         else:
             # if self.max_q_backup
             next_actions_temp, _ = self._get_policy_actions(
@@ -645,7 +646,6 @@ class SACTrainerRank1(TorchTrainer):
         qfs_loss = self.qf_criterion(qs_pred, q_target_detach)
         qfs_loss = qfs_loss.mean(dim=(1, 2)).sum()
         qfs_loss_total = qfs_loss
-
         if self.q_smooth_eps > 0 and self.q_smooth_reg > 0:
             M, A, size, noised_obs = self._get_noised_obs(obs, actions, self.q_smooth_eps)
             # (M,B*size,1)
