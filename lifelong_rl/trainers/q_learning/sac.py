@@ -508,6 +508,7 @@ class SACTrainerBatchEnsemble(TorchTrainer):
         self.qfs_optimizer = optimizer_class(
             self.qfs.parameters(),
             lr=qf_lr,
+            weight_decay=1e-3,
         )
 
         self.eval_statistics = OrderedDict()

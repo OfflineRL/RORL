@@ -361,9 +361,6 @@ class MimoEnsembleFlattenMLP(nn.Module):
                  hidden_sizes,
                  input_size,
                  output_size,
-                 init_w=3e-3,
-                 w_scale=1,
-                 b_init_value=0.1,
                  layer_norm=None,
                  batch_norm=False,
                  final_init_scale=None,
@@ -857,5 +854,167 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
         preds = self.forward(*inputs)
         return torch.min(preds, dim=0)[0]
 
+    def fit_input_stats(self, data, mask=None):
+        raise NotImplementedError
+
+
+
+class BatchEnsembleLinearRank1(nn.Module):
+
+    def __init__(self, input_size, output_size, ensemble_size, bias=True, diversity = False):
+        super().__init__()
+        self.in_features = input_size
+        self.out_features = output_size
+        self.ensemble_size = ensemble_size
+        self.weight_diversity = diversity
+
+        self.W = nn.Parameter(torch.empty(output_size, input_size))  # m*n
+        self.r = nn.Parameter(torch.empty(ensemble_size, input_size))  # M*m
+        self.s = nn.Parameter(torch.empty(ensemble_size, output_size))  # M*n
+
+        if bias:
+            self.bias = nn.Parameter(torch.empty(ensemble_size, output_size))
+        else:
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def forward(self, X):
+        '''
+        X: (B, M, C_in)
+        return (B, M, C_out)
+
+        '''
+        R = self.r.unsqueeze(0)  # Add a dimension for broadcasting
+        S = self.s.unsqueeze(0)  # Add a dimension for broadcasting
+        bias = self.bias.unsqueeze(0)  # Add a dimension for broadcasting
+
+        # Eq. 5 from BatchEnsembles paper
+        output = torch.matmul((X * R), self.W.t()) * S + bias  # (B, M, C_out)
+
+        diver =  torch.tensor(0) 
+        if self.weight_diversity:
+          R1 = self.r/torch.norm(self.r,dim=1,keepdim=True)
+          S1 = self.s/torch.norm(self.s,dim=1,keepdim=True)
+          diver = 1 - (torch.mean(torch.matmul(R1,R1.t()) + torch.matmul(S1,S1.t())))/2
+
+        return output,diver
+
+    def reset_parameters(self):
+        # nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
+        nn.init.xavier_uniform_(self.W,gain=nn.init.calculate_gain('relu'))
+        # Another way to initialize the fast weights
+        #nn.init.normal_(self.r, mean=1., std=0.1)
+        #nn.init.normal_(self.s, mean=1., std=0.1)
+
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias, -bound, bound)
+        
+        if True:
+            with torch.no_grad():
+              # random sign initialization from paper
+                self.r.bernoulli_(0.5).mul_(2).add_(-1)
+                self.s.bernoulli_(0.5).mul_(2).add_(-1)
+        else:
+            # nn.init.normal_(self.r, mean=1., std=0.5)
+            # nn.init.normal_(self.s, mean=1., std=0.5)
+            nn.init.normal_(self.r, mean=1., std=0.5)
+            nn.init.normal_(self.r, mean=1., std=0.5)
+
+
+class BatchEnsembleFlattenRank1(nn.Module):
+
+    def __init__(
+            self,
+            ensemble_size,
+            hidden_sizes,
+            input_size,
+            output_size,
+            layer_norm=None,
+            batch_norm=False,
+            norm_input=False,
+            obs_norm_mean=None,
+            obs_norm_std=None,
+            hidden_activate=F.gelu, # THANH
+            diversity_regularize = False # THANH
+    ):
+        super().__init__()
+
+        self.ensemble_size = ensemble_size
+        self.ensemble_num = ensemble_size
+        self.input_size = input_size
+        self.output_size = output_size
+
+        self.sampler = np.random.default_rng()
+
+        self.hidden_activation = hidden_activate
+        self.output_activation = identity
+        
+        self.layer_norm = layer_norm
+
+        self.norm_input = norm_input
+        if self.norm_input:
+            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
+
+        self.fcs = []
+        self.diversity_regularize= diversity_regularize
+
+        if batch_norm:
+            raise NotImplementedError
+
+        in_size = input_size
+        for i, next_size in enumerate(hidden_sizes):
+            fc = BatchEnsembleLinearRank1(
+                ensemble_size=ensemble_size,
+                input_size=in_size,
+                output_size=next_size,
+                diversity = self.diversity_regularize,
+            )
+            self.__setattr__('fc%d'% i, fc)
+            self.fcs.append(fc)
+            in_size = next_size
+
+        self.last_fc = BatchEnsembleLinearRank1(
+            ensemble_size=ensemble_size,
+            input_size=in_size,
+            output_size=output_size,
+            diversity = self.diversity_regularize,
+        )
+
+
+    def forward(self, *inputs, **kwargs):
+        if self.norm_input:
+            obs = (inputs[0] - self.obs_norm_mean) / self.obs_norm_std
+            flat_inputs = torch.cat([obs, inputs[1]], dim=-1)
+        else:
+            flat_inputs = torch.cat([inputs[0], inputs[1]], dim=-1)
+
+        flat_inputs = flat_inputs.repeat_interleave(self.ensemble_size, 0).view(-1,self.ensemble_size, self.input_size)
+
+        # input normalization
+        h = flat_inputs
+
+        # standard feedforward network
+        diversity = 0
+        for _, fc in enumerate(self.fcs):
+            h,div = fc(h)
+            diversity +=div 
+            h = self.hidden_activation(h)
+            if hasattr(self, 'layer_norm') and (self.layer_norm is not None):
+                h = self.layer_norm(h)
+        preactivation,div = self.last_fc(h)
+        diversity +=div
+        output = self.output_activation(preactivation) # (B,M, C_out)
+        # Transpose to (M, B, C_out)
+        output = output.transpose(0, 1).contiguous()
+        
+        return output #,diversity
+
+    def sample(self, *inputs):
+        preds = self.forward(*inputs)
+        return torch.min(preds, dim=0)[0]
+    
     def fit_input_stats(self, data, mask=None):
         raise NotImplementedError

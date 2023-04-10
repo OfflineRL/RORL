@@ -17,12 +17,12 @@ def get_config(
         obs_dim,
         action_dim,
         replay_buffer,
-        efficient="MIMO",
+        efficient="RANK1",
 ):
     """
     Policy construction
     """
-    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE"]
+    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANK1"]
     num_qs = variant['trainer_kwargs']['num_qs']
     M = variant['policy_kwargs']['layer_size']
     num_q_layers = variant['policy_kwargs']['num_q_layers']
@@ -67,6 +67,32 @@ def get_config(
             obs_std=obs_norm_std,
             **variant['trainer_kwargs'],
         )
+
+    elif efficient == "RANK1":
+        qfs, target_qfs = ppp.group_init(
+            2,
+            networks.BatchEnsembleFlattenRank1,
+            ensemble_size=num_qs,
+            hidden_sizes=[M] * num_q_layers,
+            input_size=obs_dim + action_dim,
+            output_size=1,
+            layer_norm=None,
+            norm_input=norm_input,
+            obs_norm_mean=obs_norm_mean,
+            obs_norm_std=obs_norm_std,
+        )
+
+        trainer = sac.SACTrainer(
+            env=eval_env,
+            policy=policy,
+            qfs=qfs,
+            target_qfs=target_qfs,
+            replay_buffer=replay_buffer,
+            norm_input=norm_input,
+            obs_std=obs_norm_std,
+            **variant['trainer_kwargs'],
+        )
+
 
     elif efficient == "MIMO":
         qfs, target_qfs = ppp.group_init(
