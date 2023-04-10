@@ -13,9 +13,7 @@ from lifelong_rl.torch.modules import LayerNorm
 def identity(x):
     return x
 
-
 class BatchEnsembleLinear(nn.Module):
-    """ Batch ensemble linear layer"""
 
     def __init__(self, input_size, output_size, ensemble_size, bias=True):
         super().__init__()
@@ -45,15 +43,21 @@ class BatchEnsembleLinear(nn.Module):
                       ...
         """
         B = X.shape[0] // self.ensemble_size
-        R = self.r.repeat(B, 1)
-        S = self.s.repeat(B, 1)
-        bias = self.bias.repeat(B, 1)
+        X = X.view(B, self.ensemble_size, -1)  # Reshape input to (B, M, C_in)
+        R = self.r.unsqueeze(0)  # Add a dimension for broadcasting
+        S = self.s.unsqueeze(0)  # Add a dimension for broadcasting
+        bias = self.bias.unsqueeze(0)  # Add a dimension for broadcasting
+
         # Eq. 5 from BatchEnsembles paper
-        return torch.mm((X * R), self.W.T) * S + bias  # (B*M, C_out)
+        output = torch.matmul((X * R), self.W.t()) * S + bias  # (B, M, C_out)
+        
+        # Flatten output back to (B*M, C_out)
+        output = output.view(B * self.ensemble_size, -1)
+        return output
 
     def reset_parameters(self):
-        nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
-
+        # nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
+        nn.init.xavier_uniform_(self.W,gain=nn.init.calculate_gain('relu'))
         # Another way to initialize the fast weights
         #nn.init.normal_(self.r, mean=1., std=0.1)
         #nn.init.normal_(self.s, mean=1., std=0.1)
@@ -62,11 +66,188 @@ class BatchEnsembleLinear(nn.Module):
             fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W)
             bound = 1 / math.sqrt(fan_in)
             nn.init.uniform_(self.bias, -bound, bound)
+        
+        if True:
+            with torch.no_grad():
+              # random sign initialization from paper
+                self.r.bernoulli_(0.5).mul_(2).add_(-1)
+                self.s.bernoulli_(0.5).mul_(2).add_(-1)
+        else:
+            # nn.init.normal_(self.r, mean=1., std=0.5)
+            # nn.init.normal_(self.s, mean=1., std=0.5)
+            nn.init.normal_(self.r, mean=1., std=0.5)
+            nn.init.normal_(self.r, mean=1., std=0.5)
 
-        with torch.no_grad():
-            self.r.bernoulli_(0.5).mul_(2).add_(-1)
-            self.s.bernoulli_(0.5).mul_(2).add_(-1)
 
+class BatchEnsembleLinearPlus(nn.Module):
+
+    def __init__(self, input_size, output_size, ensemble_size, bias=True, diversity = False):
+        super().__init__()
+        self.in_features = input_size
+        self.out_features = output_size
+        self.ensemble_size = ensemble_size
+        self.weight_diversity = diversity
+
+        self.W = nn.Parameter(torch.empty(output_size, input_size))  # m*n
+        self.r = nn.Parameter(torch.empty(ensemble_size, input_size))  # M*m
+        self.s = nn.Parameter(torch.empty(ensemble_size, output_size))  # M*n
+
+        if bias:
+            self.bias = nn.Parameter(torch.empty(ensemble_size, output_size))
+        else:
+            self.register_parameter('bias', None)
+
+        self.reset_parameters()
+
+    def forward(self, X):
+        """
+        Expects input in shape (B*M, C_in), dim 0 layout:
+            ------ x0, model 0 ------
+            -------x0, model 1 ------
+                      ...
+            ------ x1, model 0 ------
+            -------x1, model 1 ------
+                      ...
+        """
+        B = X.shape[0] // self.ensemble_size
+        X = X.view(B, self.ensemble_size, -1)  # Reshape input to (B, M, C_in)
+        R = self.r.unsqueeze(0)  # Add a dimension for broadcasting
+        S = self.s.unsqueeze(0)  # Add a dimension for broadcasting
+        bias = self.bias.unsqueeze(0)  # Add a dimension for broadcasting
+
+        # Eq. 5 from BatchEnsembles paper
+        output = torch.matmul((X * R), self.W.t()) * S + bias  # (B, M, C_out)
+        
+        # Flatten output back to (B*M, C_out)
+        output = output.view(B * self.ensemble_size, -1)
+        diver =  torch.tensor(0) 
+        if self.weight_diversity:
+          R1 = self.r/torch.norm(self.r,dim=1,keepdim=True)
+          S1 = self.s/torch.norm(self.s,dim=1,keepdim=True)
+          diver = 1 - (torch.mean(torch.matmul(R1,R1.t()) + torch.matmul(S1,S1.t())))/2
+
+        return output,diver
+
+    def reset_parameters(self):
+        # nn.init.kaiming_uniform_(self.W, a=math.sqrt(5))
+        nn.init.xavier_uniform_(self.W,gain=nn.init.calculate_gain('relu'))
+        # Another way to initialize the fast weights
+        #nn.init.normal_(self.r, mean=1., std=0.1)
+        #nn.init.normal_(self.s, mean=1., std=0.1)
+
+        if self.bias is not None:
+            fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.W)
+            bound = 1 / math.sqrt(fan_in)
+            nn.init.uniform_(self.bias, -bound, bound)
+        
+        if True:
+            with torch.no_grad():
+              # random sign initialization from paper
+                self.r.bernoulli_(0.5).mul_(2).add_(-1)
+                self.s.bernoulli_(0.5).mul_(2).add_(-1)
+        else:
+            # nn.init.normal_(self.r, mean=1., std=0.5)
+            # nn.init.normal_(self.s, mean=1., std=0.5)
+            nn.init.normal_(self.r, mean=1., std=0.5)
+            nn.init.normal_(self.r, mean=1., std=0.5)
+
+
+class BatchEnsembleFlattenMLPPlus(nn.Module):
+
+    def __init__(
+            self,
+            ensemble_size,
+            hidden_sizes,
+            input_size,
+            output_size,
+            layer_norm=None,
+            batch_norm=False,
+            norm_input=False,
+            obs_norm_mean=None,
+            obs_norm_std=None,
+            hidden_activate=F.gelu, # THANH
+            diversity_regularize = False # THANH
+    ):
+        super().__init__()
+
+        self.ensemble_size = ensemble_size
+        self.ensemble_num = ensemble_size
+        self.input_size = input_size
+        self.output_size = output_size
+
+        self.sampler = np.random.default_rng()
+
+        self.hidden_activation = hidden_activate
+        self.output_activation = identity
+        
+        self.layer_norm = layer_norm
+
+        self.norm_input = norm_input
+        if self.norm_input:
+            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
+
+        self.fcs = []
+        self.diversity_regularize= diversity_regularize
+
+        if batch_norm:
+            raise NotImplementedError
+
+        in_size = input_size
+        for i, next_size in enumerate(hidden_sizes):
+            fc = BatchEnsembleLinearPlus(
+                ensemble_size=ensemble_size,
+                input_size=in_size,
+                output_size=next_size,
+                diversity = self.diversity_regularize,
+            )
+            self.__setattr__('fc%d'% i, fc)
+            self.fcs.append(fc)
+            in_size = next_size
+
+        self.last_fc = BatchEnsembleLinearPlus(
+            ensemble_size=ensemble_size,
+            input_size=in_size,
+            output_size=output_size,
+            diversity = self.diversity_regularize,
+        )
+
+
+    def forward(self, *inputs, **kwargs):
+        if self.norm_input:
+            obs = (inputs[0] - self.obs_norm_mean) / self.obs_norm_std
+            flat_inputs = torch.cat([obs, inputs[1]], dim=-1)
+        else:
+            flat_inputs = torch.cat([inputs[0], inputs[1]], dim=-1)
+        
+        if kwargs.get("sample", False):
+            flat_inputs = flat_inputs.repeat_interleave(self.ensemble_size, 0)
+
+        # input normalization
+        h = flat_inputs
+
+        # standard feedforward network
+        diversity = 0
+        for _, fc in enumerate(self.fcs):
+            h,div = fc(h)
+            diversity +=div 
+            h = self.hidden_activation(h)
+            if hasattr(self, 'layer_norm') and (self.layer_norm is not None):
+                h = self.layer_norm(h)
+        preactivation,div = self.last_fc(h)
+        diversity +=div
+        output = self.output_activation(preactivation)
+        return output,diversity
+
+    def sample(self, *inputs):
+        preds,*_ = self.forward(*inputs,sample=True)
+        B = preds.shape[0] // self.ensemble_size
+        #(B*Self.ensemble_size,1) => (self.ensemble_size, B, 1)
+        preds = preds.view(B, self.ensemble_size, -1)
+        # Return min, mean and std of the ensemble
+        return torch.min(preds, dim=1)[0],0#,preds.mean(dim=1), preds.std(dim=1)
+    
+    def fit_input_stats(self, data, mask=None):
+        raise NotImplementedError
 
 class BatchEnsembleFlattenMLP(nn.Module):
 
@@ -77,15 +258,13 @@ class BatchEnsembleFlattenMLP(nn.Module):
             input_size,
             output_size,
             init_w=3e-3,
-            hidden_init=ptu.fanin_init,
-            w_scale=1,
-            b_init_value=0.1,
             layer_norm=None,
             batch_norm=False,
             final_init_scale=None,
             norm_input=False,
             obs_norm_mean=None,
             obs_norm_std=None,
+            hidden_activate=torch.relu, 
     ):
         super().__init__()
 
@@ -95,15 +274,14 @@ class BatchEnsembleFlattenMLP(nn.Module):
 
         self.sampler = np.random.default_rng()
 
-        self.hidden_activation = F.relu
+        self.hidden_activation = hidden_activate
         self.output_activation = identity
-
+        
         self.layer_norm = layer_norm
 
         self.norm_input = norm_input
         if self.norm_input:
-            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(
-                obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
+            self.obs_norm_mean, self.obs_norm_std = ptu.from_numpy(obs_norm_mean), ptu.from_numpy(obs_norm_std + 1e-6)
 
         self.fcs = []
 
@@ -117,7 +295,7 @@ class BatchEnsembleFlattenMLP(nn.Module):
                 input_size=in_size,
                 output_size=next_size,
             )
-            self.__setattr__('fc%d' % i, fc)
+            self.__setattr__('fc%d'% i, fc)
             self.fcs.append(fc)
             in_size = next_size
 
@@ -139,13 +317,16 @@ class BatchEnsembleFlattenMLP(nn.Module):
         Returns:
             Q(s,a): return Q(s,a) size B x 1, where emsamble members output are stack along dim 0 [q_m0 , q_m1, ...,q_mN, q_m0, q_m1, ...]^T 
         """
-
-        inputs = [inputs[0], inputs[1]]
+        
         if self.norm_input:
-            inputs[0] = (inputs[0] - self.obs_norm_mean) / self.obs_norm_std
+            obs = (inputs[0] - self.obs_norm_mean) / self.obs_norm_std
+            flat_inputs = torch.cat([obs, inputs[1]], dim=-1)
+        else:
+            flat_inputs = torch.cat([inputs[0], inputs[1]], dim=-1)
 
-        flat_inputs = torch.cat(inputs, dim=-1)
-        dim = len(flat_inputs.shape)
+        dim=len(flat_inputs.shape)
+        if kwargs.get("sample",False):
+            flat_inputs = flat_inputs.repeat_interleave(self.ensemble_size,0)
 
         # input normalization
         h = flat_inputs
@@ -158,21 +339,17 @@ class BatchEnsembleFlattenMLP(nn.Module):
                 h = self.layer_norm(h)
         preactivation = self.last_fc(h)
         output = self.output_activation(preactivation)
-
-        # if original dim was 1D, squeeze the extra created layer
-        if dim == 1:
-            output = output.squeeze(1)
         return output
 
     def sample(self, *inputs):
-        inputs = [inputs[0].repeat_interleave(
-            self.ensemble_size, 0), inputs[1].repeat_interleave(self.ensemble_size, 0)]
-        preds = self.forward(*inputs)
+        preds = self.forward(*inputs,sample=True)
         B = preds.shape[0] // self.ensemble_size
-        # (B*Self.ensemble_size,1) => (self.ensemble_size, B, 1)
-        preds = preds.view(self.ensemble_size, B, 1)
+        #(B*Self.ensemble_size,1) => (self.ensemble_size, B, 1)
+        preds = preds.view(B,self.ensemble_size,-1 )
         # Return min, mean and std of the ensemble
-        return preds.min(0)[0], preds.mean(0), preds.std(0)
+        return torch.min(preds, dim=1)[0],preds.mean(dim=1), preds.std(dim=1)
+ 
+
 
     def fit_input_stats(self, data, mask=None):
         raise NotImplementedError
