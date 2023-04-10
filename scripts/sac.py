@@ -1,3 +1,8 @@
+
+import sys
+# Add the project root directory to the PYTHONPATH
+sys.path.append("/mnt/hdd/thanh/workspace/2023/common/RORL")
+
 from email.mime import image
 from urllib.request import FancyURLopener
 from experiment_utils.launch_experiment import launch_experiment
@@ -33,7 +38,7 @@ def main(args):
             qf_lr=3e-4,
             use_automatic_entropy_tuning=True,
             policy_eval_start=0,
-            num_qs=10,
+            num_qs=8,
             target_update_period=1,
             max_q_backup=False,
             deterministic_backup=False,
@@ -44,7 +49,7 @@ def main(args):
             num_eval_steps_per_epoch=1000,
             num_trains_per_train_loop=1000,
             max_path_length=1000, 
-            batch_size=256,
+            batch_size=128,
             save_snapshot_freq=500,
         ),
     )
@@ -68,6 +73,7 @@ def main(args):
 
 
     variant['offline_kwargs']['num_epochs'] = args.epoch
+    variant['offline_kwargs']['batch_size'] = args.batch_size
 
     # SAC-N
     variant['trainer_kwargs']['policy_lr'] = args.plr
@@ -155,7 +161,8 @@ if __name__ == '__main__':
     parser.add_argument('--log_to_tensorboard', action='store_true')
     parser.add_argument('--base_log_dir', default='results', type=str)
     parser.add_argument('--norm_input', action='store_true')
-    parser.add_argument("--epoch", default=3000, type=int)
+    parser.add_argument("--epoch", default=500, type=int)
+    parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument('--load_path', default='', type=str)
     parser.add_argument('--load_Qs', default='', type=str, help='Only load Qs')
 
@@ -174,7 +181,7 @@ if __name__ == '__main__':
                         type=float,
                         help='Q learning rate')
     parser.add_argument("--num_qs",
-                        default=10,
+                        default=8,
                         type=int,
                         help='number of Q-functions to be used')
     parser.add_argument('--max_q_backup',
