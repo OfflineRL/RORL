@@ -461,6 +461,9 @@ class SACTrainerRank1(TorchTrainer):
         self.qfs = qfs
         self.target_qfs = target_qfs
         self.target_qfs.eval()
+        for param in target_qfs.parameters():
+            param.requires_grad = False
+
         self.num_qs = num_qs
 
         self.discount = discount
@@ -520,19 +523,16 @@ class SACTrainerRank1(TorchTrainer):
 
     def _get_tensor_values(self, obs, actions, network=None):
         action_shape = actions.shape[0]
-        obs_shape = obs.shape[0]
-        num_repeat = action_shape // obs_shape
-        obs_temp = obs.repeat_interleave(num_repeat, dim=0)
-        preds = network(obs_temp, actions)
-        preds = preds.view(-1, obs_shape, num_repeat, 1)
+        B,E = obs.shape
+        num_repeat = action_shape // B
+        preds = network(obs.unsqueeze(1).expand(-1,num_repeat,-1).contiguous().view(-1,E), actions)
+        # preds size (ensembles, B*Num_repeat,E) => (ensembles, B, Num_repeat, E)
+        preds = preds.view(-1, B, num_repeat, 1)
         return preds
 
     def _get_policy_actions(self, obs, num_actions, network=None):
-        obs_temp = obs.unsqueeze(1).repeat(1, num_actions,
-                                           1).view(obs.shape[0] * num_actions,
-                                                   obs.shape[1])
         new_obs_actions, _, _, new_obs_log_pi, *_ = network(
-            obs_temp,
+            obs.torch.repeat_interleave(num_actions, dim=0),
             reparameterize=True,
             return_log_prob=True,
         )
@@ -541,6 +541,9 @@ class SACTrainerRank1(TorchTrainer):
         
 
     def _get_noised_obs(self, obs, actions, eps):
+        """ Add noise to observations 
+            Each observation is repeated interleave num_samples times
+        """
         M, N = obs.shape[0], obs.shape[1] 
         A = actions.shape[1]
         size = self.num_samples
@@ -642,7 +645,7 @@ class SACTrainerRank1(TorchTrainer):
 
         q_target_detach = q_target.unsqueeze(0)
         # Use `expand` instead of `repeat` to avoid copying data
-        q_target_detach = q_target_detach.expand(self.num_qs, -1, -1)
+        q_target_detach = q_target_detach.expand(self.num_qs, -1, -1).contiguous()
         qfs_loss = self.qf_criterion(qs_pred, q_target_detach)
         qfs_loss = qfs_loss.mean(dim=(1, 2)).sum()
         qfs_loss_total = qfs_loss
@@ -682,8 +685,8 @@ class SACTrainerRank1(TorchTrainer):
             indices = np.random.choice(qs_pred.size(0), size=sample_size, replace=False)
             indices = torch.from_numpy(indices).long().to(ptu.device)
 
-            obs_tile = obs.unsqueeze(0).repeat(self.num_qs, 1, 1)
-            actions_tile = actions.unsqueeze(0).repeat(self.num_qs, 1, 1).requires_grad_(True)
+            obs_tile = obs.unsqueeze(0).expand(self.num_qs, -1, -1).contiguous()
+            actions_tile = actions.unsqueeze(0).expand(self.num_qs, -1, -1).contiguous().requires_grad_(True)
             qs_preds_tile = self.qfs(obs_tile, actions_tile)
             qs_pred_grads, = torch.autograd.grad(qs_preds_tile.sum(), actions_tile, retain_graph=True, create_graph=True)
             qs_pred_grads = qs_pred_grads / (torch.norm(qs_pred_grads, p=2, dim=2).unsqueeze(-1) + 1e-10)
@@ -691,7 +694,7 @@ class SACTrainerRank1(TorchTrainer):
             qs_pred_grads = torch.index_select(qs_pred_grads, dim=0, index=indices).transpose(0, 1)
             
             qs_pred_grads = torch.einsum('bik,bjk->bij', qs_pred_grads, qs_pred_grads)
-            masks = torch.eye(sample_size, device=ptu.device).unsqueeze(dim=0).repeat(qs_pred_grads.size(0), 1, 1)
+            masks = torch.eye(sample_size, device=ptu.device).unsqueeze(dim=0).expand(qs_pred_grads.size(0), -1, -1).contiguous()
             qs_pred_grads = (1 - masks) * qs_pred_grads
             grad_loss = torch.mean(torch.sum(qs_pred_grads, dim=(1, 2))) / (sample_size - 1)
             
