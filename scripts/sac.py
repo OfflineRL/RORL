@@ -150,7 +150,7 @@ def main(args):
 def objective(trial,args):
     
      # define hyper-parameters
-    args.batch_size = trial.suggest_categorical("batch_size", [ 128, 256, 512])
+    args.batch_size = trial.suggest_categorical("batch_size", [128,256,512])
     args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
     args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)   
     args.num_qs = trial.suggest_int("num_qs", 3,30)
