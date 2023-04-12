@@ -14,6 +14,7 @@ import lifelong_rl.torch.pytorch_util as ptu
 import argparse
 from lifelong_rl.core import logger
 from scripts.get_config import get_rorl_config
+import optuna
 
 
 def main(args):
@@ -57,7 +58,7 @@ def main(args):
     experiment_kwargs = dict(
         exp_postfix='',
         use_gpu=True if torch.cuda.is_available() else False,
-        log_to_tensorboard=True,
+        log_to_tensorboard=False,
         base_log_dir=args.base_log_dir,
     )
 
@@ -112,6 +113,7 @@ def main(args):
 
     # experiment name
     experiment_kwargs['exp_postfix'] = ''
+    experiment_kwargs['log_to_tensorboard'] = args.tensorboard
     
     exp_postfix = args.exp_prefix + '_{}'.format(args.num_qs)
     
@@ -145,6 +147,22 @@ def main(args):
                       get_offline_algorithm=get_offline_algorithm,
                       **experiment_kwargs)
 
+def objective(trial,args):
+    
+     # define hyper-parameters
+    args.batch_size = trial.suggest_categorical("batch_size", [ 128, 256, 512, 1024])
+    args.plr = trial.suggest_float("lr", 1e-4, 1e-2)
+    args.qlr = trial.suggest_float("lr", 1e-4, 1e-2)   
+    args.num_qs = trial.suggest_int("num_qs", 5,50)
+    args.epoch = 300
+    args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
+    args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-4, 1e-2)
+    args.q_smooth_tau = trial.suggest_float("q_smooth_tau", 1e-2, 1)
+
+    main(args)
+
+    return -logger.eval_mean_return
+
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
@@ -158,7 +176,7 @@ if __name__ == '__main__':
     parser.add_argument('--exp_prefix', default='RORL', type=str)
     # Misc arguments
     parser.add_argument('--use_cpu', action='store_true')
-    parser.add_argument('--log_to_tensorboard', action='store_true')
+    parser.add_argument('--tensorboard', action='store_true', help='Log to tensorboard')
     parser.add_argument('--base_log_dir', default='results', type=str)
     parser.add_argument('--norm_input', action='store_true')
     parser.add_argument("--epoch", default=500, type=int)
@@ -226,4 +244,14 @@ if __name__ == '__main__':
     parser.add_argument('--load_config_type', default='', type=str)
     args = parser.parse_args()
 
-    main(args)
+
+
+    if False:
+        main(args)
+    else:
+        #optuna create-study --study-name "halfcheetah-medium-v2-test" --storage "mysql://thanh41@143.248.158.41/myOptuna"
+        study = optuna.load_study(
+            study_name="halfcheetah-medium-v2", storage="mysql://thanh41@143.248.158.41/myOptuna"
+        )
+        study.optimize(lambda trial: objective(trial, args), n_trials=5)
+        print(study.best_params)

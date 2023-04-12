@@ -100,6 +100,8 @@ class Logger(object):
         self._header_printed = False
         self.table_printer = TerminalTablePrinter()
 
+        self.eval_mean_return = -1000.0
+
         self._plt_figs = []
 
     def reset(self):
@@ -301,6 +303,7 @@ class Logger(object):
                     self.log(line, *args, **kwargs)
 
             tabular_dict = dict(self._tabular)
+            self.eval_mean_return = float(tabular_dict.get('evaluation/Returns Mean',-1000.0))
 
             if self._log_to_tensorboard:
                 for key in tabular_dict:

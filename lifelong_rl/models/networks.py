@@ -937,7 +937,7 @@ class BatchEnsembleFlattenRank1(nn.Module):
             norm_input=False,
             obs_norm_mean=None,
             obs_norm_std=None,
-            hidden_activate=F.gelu, # THANH
+            hidden_activate=F.relu, # THANH
             diversity_regularize = False # THANH
     ):
         super().__init__()
