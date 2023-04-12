@@ -150,14 +150,17 @@ def main(args):
 def objective(trial,args):
     
      # define hyper-parameters
-    args.batch_size = trial.suggest_categorical("batch_size", [ 128, 256, 512, 1024])
-    args.plr = trial.suggest_float("lr", 1e-4, 1e-2)
-    args.qlr = trial.suggest_float("lr", 1e-4, 1e-2)   
-    args.num_qs = trial.suggest_int("num_qs", 5,50)
-    args.epoch = 300
+    args.batch_size = trial.suggest_categorical("batch_size", [ 128, 256, 512])
+    args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
+    args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)   
+    args.num_qs = trial.suggest_int("num_qs", 3,30)
+    args.epoch = 500
     args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
     args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-4, 1e-2)
     args.q_smooth_tau = trial.suggest_float("q_smooth_tau", 1e-2, 1)
+    args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1)
+    args.q_ood_reg = trial.suggest_float("q_ood_reg", 1e-4, 1)
+    args.q_ood_uncertainty_reg = trial.suggest_float("q_ood_uncertainty_reg", 1e-4, 1)
 
     main(args)
 
@@ -170,7 +173,7 @@ if __name__ == '__main__':
     # Variant
     parser.add_argument('-e',
                         '--env_name',
-                        default='halfcheetah-random-v2',
+                        default='halfcheetah-expert-v2',
                         type=str)
     parser.add_argument('--seed', default=0, type=int)
     parser.add_argument('--exp_prefix', default='RORL', type=str)
@@ -251,7 +254,7 @@ if __name__ == '__main__':
     else:
         #optuna create-study --study-name "halfcheetah-medium-v2-test" --storage "mysql://thanh41@143.248.158.41/myOptuna"
         study = optuna.load_study(
-            study_name="halfcheetah-medium-v2", storage="mysql://thanh41@143.248.158.41/myOptuna"
+            study_name=args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna"
         )
         study.optimize(lambda trial: objective(trial, args), n_trials=5)
         print(study.best_params)
