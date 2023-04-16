@@ -21,6 +21,7 @@ import matplotlib.pyplot as plt
 from pathlib import Path
 
 from lifelong_rl.core.logging.tabulate import tabulate
+import wandb
 
 
 class TerminalTablePrinter(object):
@@ -75,6 +76,7 @@ class Logger(object):
         self.log_dir = ''
 
         self._log_to_tensorboard = False
+        self._log_to_wandb = False
         self._writer = None
 
         self._prefixes = []
@@ -186,6 +188,17 @@ class Logger(object):
 
     def set_log_to_tensorboard(self, log_to_tensorboard):
         self._log_to_tensorboard = log_to_tensorboard
+        self._writer = SummaryWriter(self.log_dir)
+    
+
+    def set_log_to_wandb(self, entity_name,project_name,config):
+        self._log_to_wandb = True
+        wandb.init(
+            project=project_name,
+            config=config,
+            entity=entity_name,
+            name=config['env_name']+'_'+config['prefix']+'_SEED'+str(config['seed']) 
+        )
         self._writer = SummaryWriter(self.log_dir)
 
     def log(self, s, with_prefix=False, with_timestamp=True):
@@ -305,6 +318,19 @@ class Logger(object):
             tabular_dict = dict(self._tabular)
             self.eval_mean_return = float(tabular_dict.get('evaluation/Returns Mean',-1000.0))
 
+            if self._log_to_wandb:
+                log_dict = {}
+                for key in tabular_dict:
+                    proc_key = key
+                    proc_key = proc_key.replace(' (s)', '')
+                    proc_key = proc_key.replace(' ', '_')
+                    proc_key = proc_key.lower()
+                    if '/' not in key or 'replay_buffer' in key:
+                        proc_key = 'misc/' + proc_key
+                    log_dict[proc_key] = float(tabular_dict[key])
+
+                wandb.log(log_dict, step=int(tabular_dict['Epoch']))
+
             if self._log_to_tensorboard:
                 for key in tabular_dict:
                     proc_key = key
@@ -314,6 +340,8 @@ class Logger(object):
                     if '/' not in key or 'replay_buffer' in key:
                         proc_key = 'misc/' + proc_key
                     self._writer.add_scalar(proc_key, float(tabular_dict[key]), int(tabular_dict['Epoch']))
+
+                    
 
             # Also write to the csv files
             # This assumes that the keys in each iteration won't change!

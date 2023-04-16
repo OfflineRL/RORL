@@ -1,20 +1,19 @@
 
+import optuna
+from scripts.get_config import get_rorl_config
+from lifelong_rl.core import logger
+import argparse
+import lifelong_rl.torch.pytorch_util as ptu
+import numpy as np
+import torch
+from experiment_configs.algorithms.offline import get_offline_algorithm
+from experiment_configs.configs.q_learning.sac_config import get_config
+from experiment_utils.launch_experiment import launch_experiment
+from urllib.request import FancyURLopener
+from email.mime import image
 import sys
 # Add the project root directory to the PYTHONPATH
 sys.path.append("/mnt/hdd/thanh/workspace/2023/common/RORL")
-
-from email.mime import image
-from urllib.request import FancyURLopener
-from experiment_utils.launch_experiment import launch_experiment
-from experiment_configs.configs.q_learning.sac_config import get_config
-from experiment_configs.algorithms.offline import get_offline_algorithm
-import torch
-import numpy as np
-import lifelong_rl.torch.pytorch_util as ptu
-import argparse
-from lifelong_rl.core import logger
-from scripts.get_config import get_rorl_config
-import optuna
 
 
 def main(args):
@@ -49,7 +48,7 @@ def main(args):
             num_epochs=3000,
             num_eval_steps_per_epoch=1000,
             num_trains_per_train_loop=1000,
-            max_path_length=1000, 
+            max_path_length=1000,
             batch_size=128,
             save_snapshot_freq=500,
         ),
@@ -72,7 +71,6 @@ def main(args):
     variant['eval_attack_eps'] = args.eval_attack_eps
     variant['eval_attack_mode'] = args.eval_attack_mode
 
-
     variant['offline_kwargs']['num_epochs'] = args.epoch
     variant['offline_kwargs']['batch_size'] = args.batch_size
 
@@ -86,7 +84,7 @@ def main(args):
 
     variant['reward_mean'] = args.reward_mean
     variant['reward_std'] = args.reward_std
-    
+
     # EDAC
     variant['trainer_kwargs']['eta'] = args.eta
 
@@ -114,9 +112,9 @@ def main(args):
     # experiment name
     experiment_kwargs['exp_postfix'] = ''
     experiment_kwargs['log_to_tensorboard'] = args.tensorboard
-    
+
     exp_postfix = args.exp_prefix + '_{}'.format(args.num_qs)
-    
+
     # exp_postfix += '_plr{:.4f}_qlr{:.4f}'.format(args.plr, args.qlr)
     if variant['trainer_kwargs']['max_q_backup']:
         exp_postfix += '_maxq'
@@ -138,29 +136,36 @@ def main(args):
         'reward_norm': args.reward_norm,
     }
 
-    ####### normalize input
+    # normalize input
     variant['norm_input'] = args.norm_input
+    variant['prefix'] = args.exp_prefix
 
+    if args.wandb:
+        logger.set_log_to_wandb(args.entity, args.project, variant)
+    
     # Launch experiment
-    launch_experiment(variant=variant, 
+    launch_experiment(variant=variant,
                       get_config=get_config,
                       get_offline_algorithm=get_offline_algorithm,
                       **experiment_kwargs)
 
-def objective(trial,args):
-    
-     # define hyper-parameters
-    args.batch_size = trial.suggest_categorical("batch_size", [128,256,512])
+
+def objective(trial, args):
+
+    # define hyper-parameters
+    args.batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
     args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
-    args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)   
-    args.num_qs = trial.suggest_int("num_qs", 3,30)
+    args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)
+    args.num_qs = trial.suggest_int("num_qs", 3, 30)
     args.epoch = 500
-    args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
+    args.policy_smooth_reg = trial.suggest_float(
+        "policy_smooth_reg", 1e-4, 1e-2)
     args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-4, 1e-2)
     args.q_smooth_tau = trial.suggest_float("q_smooth_tau", 1e-2, 1)
     args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1)
     args.q_ood_reg = trial.suggest_float("q_ood_reg", 1e-4, 1)
-    args.q_ood_uncertainty_reg = trial.suggest_float("q_ood_uncertainty_reg", 1e-4, 1)
+    args.q_ood_uncertainty_reg = trial.suggest_float(
+        "q_ood_uncertainty_reg", 1e-4, 1)
 
     main(args)
 
@@ -179,7 +184,13 @@ if __name__ == '__main__':
     parser.add_argument('--exp_prefix', default='RORL', type=str)
     # Misc arguments
     parser.add_argument('--use_cpu', action='store_true')
-    parser.add_argument('--tensorboard', action='store_true', help='Log to tensorboard')
+    parser.add_argument('--tensorboard', action='store_true',
+                        help='Log to tensorboard')
+    parser.add_argument('--wandb', action='store_true',
+                        help='Log to tensorboard')
+    parser.add_argument('--entity', default='aimrl', type=str)
+    parser.add_argument('--project', default='MASTER_UNCERTAINTY', type=str)
+
     parser.add_argument('--base_log_dir', default='results', type=str)
     parser.add_argument('--norm_input', action='store_true')
     parser.add_argument("--epoch", default=500, type=int)
@@ -187,7 +198,7 @@ if __name__ == '__main__':
     parser.add_argument('--load_path', default='', type=str)
     parser.add_argument('--load_Qs', default='', type=str, help='Only load Qs')
 
-    # Evaluation 
+    # Evaluation
     parser.add_argument('--eval_no_training', action='store_true')
     parser.add_argument('--eval_attack', action='store_true')
     parser.add_argument('--eval_attack_eps', default=0.01, type=float)
@@ -215,7 +226,7 @@ if __name__ == '__main__':
                         default=-1.0,
                         type=float,
                         help='eta for diversifying Q-ensemble. < 0 for SAC-N.')
-    
+
     # reward preprocessing
     parser.add_argument("--reward_mean",
                         action='store_true',
@@ -229,30 +240,30 @@ if __name__ == '__main__':
     parser.add_argument("--shift_reward_minzero",
                         action='store_true',
                         help='normalize rewards to > 0')
-    
+
     # smooth
     parser.add_argument('--num_samples', default=20, type=int)
-    parser.add_argument('--policy_smooth_eps', default=0.0, type=float) 
+    parser.add_argument('--policy_smooth_eps', default=0.0, type=float)
     parser.add_argument('--policy_smooth_reg', default=1, type=float)
-    parser.add_argument('--q_smooth_eps', default=0.0, type=float) 
-    parser.add_argument('--q_smooth_reg', default=0.005, type=float) 
+    parser.add_argument('--q_smooth_eps', default=0.0, type=float)
+    parser.add_argument('--q_smooth_reg', default=0.005, type=float)
     parser.add_argument('--q_smooth_tau', default=0.2, type=float)
     parser.add_argument('--q_ood_eps', default=0.0, type=float)
     parser.add_argument('--q_ood_reg', default=0, type=float)
     parser.add_argument('--q_ood_uncertainty_reg', default=0, type=float)
     parser.add_argument('--q_ood_uncertainty_reg_min', default=0, type=float)
     parser.add_argument('--q_ood_uncertainty_decay', default=0, type=float)
+    parser.add_argument('--tuning', action='store_true',
+                        help='Tunning hyper-parameters')
 
     # load configs
     parser.add_argument('--load_config_type', default='', type=str)
     args = parser.parse_args()
 
-
-
-    if False:
+    if args.tuning == False:
         main(args)
     else:
-        #optuna create-study --study-name "halfcheetah-medium-v2-test" --storage "mysql://thanh41@143.248.158.41/myOptuna"
+        # optuna create-study --study-name "hopper-medium-expert-v2" --storage "mysql://thanh41@143.248.158.41/myOptuna"
         study = optuna.load_study(
             study_name=args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna"
         )
