@@ -19,6 +19,7 @@ import torch
 from tensorboardX import SummaryWriter
 import matplotlib.pyplot as plt
 from pathlib import Path
+import optuna
 
 from lifelong_rl.core.logging.tabulate import tabulate
 import wandb
@@ -105,6 +106,7 @@ class Logger(object):
         self.eval_mean_return = -1000.0
 
         self._plt_figs = []
+        self.tuning_trial = None
 
     def reset(self):
         self.__init__()
@@ -190,6 +192,8 @@ class Logger(object):
         self._log_to_tensorboard = log_to_tensorboard
         self._writer = SummaryWriter(self.log_dir)
     
+    def set_tuning_trial(self, trial):
+        self.tuning_trial = trial
 
     def set_log_to_wandb(self, entity_name,project_name,config):
         self._log_to_wandb = True
@@ -341,7 +345,12 @@ class Logger(object):
                         proc_key = 'misc/' + proc_key
                     self._writer.add_scalar(proc_key, float(tabular_dict[key]), int(tabular_dict['Epoch']))
 
-                    
+            if self.tuning_trial is not None:
+                eval_mean_return = float(tabular_dict.get('evaluation/Returns Mean',-1000.0))
+                epoch = int(tabular_dict['Epoch'])
+                self.tuning_trial.report(eval_mean_return, epoch)
+                if self.tuning_trial.should_prune():
+                    raise optuna.TrialPruned()
 
             # Also write to the csv files
             # This assumes that the keys in each iteration won't change!
