@@ -104,6 +104,7 @@ class Logger(object):
         self.table_printer = TerminalTablePrinter()
 
         self.eval_mean_return = -1000.0
+        self.historical_mean_returns = []
 
         self._plt_figs = []
         self.tuning_trial = None
@@ -290,6 +291,32 @@ class Logger(object):
         with open(log_file, "w") as f:
             json.dump(variant_data, f, indent=2, sort_keys=True, cls=MyEncoder)
 
+    def smooth(self,y, radius=10, mode='causal', valid_only=False):
+        '''
+        Copy from: https://github.com/openai/baselines/blob/master/baselines/common/plot_util.py
+        Smooth signal y, where radius is determines the size of the window
+        mode='twosided':
+            average over the window [max(index - radius, 0), min(index + radius, len(y)-1)]
+        mode='causal':
+            average over the window [max(index - radius, 0), index]
+        valid_only: put nan in entries where the full-sized window is not available
+        '''
+        assert mode in ('two_sided', 'causal')
+        if len(y) < 2*radius+1:
+            return np.ones_like(y) * y.mean()
+        elif mode == 'two_sided':
+            convkernel = np.ones(2 * radius+1)
+            out = np.convolve(y, convkernel,mode='same') / np.convolve(np.ones_like(y), convkernel, mode='same')
+            if valid_only:
+                out[:radius] = out[-radius:] = np.nan
+        elif mode == 'causal':
+            convkernel = np.ones(radius)
+            out = np.convolve(y, convkernel,mode='full') / np.convolve(np.ones_like(y), convkernel, mode='full')
+            out = out[:-radius+1]
+            if valid_only:
+                out[:radius] = np.nan
+        return out
+    
     def record_tabular_misc_stat(self, key, values, placement='back'):
         if placement == 'front':
             prefix = ""
@@ -320,7 +347,8 @@ class Logger(object):
                     self.log(line, *args, **kwargs)
 
             tabular_dict = dict(self._tabular)
-            self.eval_mean_return = float(tabular_dict.get('evaluation/Returns Mean',-1000.0))
+            self.eval_mean_return = float(tabular_dict.get('evaluation/Returns Mean',0))
+            self.historical_mean_returns.append(self.eval_mean_return)
 
             if self._log_to_wandb:
                 log_dict = {}
@@ -346,9 +374,11 @@ class Logger(object):
                     self._writer.add_scalar(proc_key, float(tabular_dict[key]), int(tabular_dict['Epoch']))
 
             if self.tuning_trial is not None:
-                eval_mean_return = float(tabular_dict.get('evaluation/Returns Mean',-1000.0))
+                # smooth mean return for evaluation
+                eval_mean_return = self.smooth(np.array(self.historical_mean_returns))[-1]
+                score = -eval_mean_return
                 epoch = int(tabular_dict['Epoch'])
-                self.tuning_trial.report(eval_mean_return, epoch)
+                self.tuning_trial.report(score, epoch)
                 if self.tuning_trial.should_prune():
                     raise optuna.TrialPruned()
 
