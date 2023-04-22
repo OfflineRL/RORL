@@ -192,7 +192,7 @@ if __name__ == '__main__':
 
     parser.add_argument('--base_log_dir', default='results', type=str)
     parser.add_argument('--norm_input', action='store_true')
-    parser.add_argument("--epoch", default=500, type=int)
+    parser.add_argument("--epoch", default=1000, type=int)
     parser.add_argument("--batch_size", default=128, type=int)
     parser.add_argument('--load_path', default='', type=str)
     parser.add_argument('--load_Qs', default='', type=str, help='Only load Qs')
@@ -262,13 +262,21 @@ if __name__ == '__main__':
     if args.tuning == False:
         main(args)
     else:
-        # optuna create-study --study-name "hopper-medium-expert-v2" --storage "mysql://thanh41@143.248.158.41/myOptuna"
-        study = optuna.load_study(
-            study_name=args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
-            pruner=optuna.pruners.PatientPruner(
-                        optuna.pruners.MedianPruner(n_startup_trials =3, n_warmup_steps=50, interval_steps=2, n_min_trials=1),
-                        patience=5
-                    ) # start pruning after 3 trials and 50 steps
-        )
-        study.optimize(lambda trial: objective(trial, args), n_trials=5)
+        # optuna create-study --study-name "hopper-medium-expert-v2" --storage "mysql://thanh41@143.248.158.41/myOptuna"    
+        NUM_TRIALS = 10 
+        TEST = False
+        if TEST:        
+            study = optuna.load_study(
+                study_name="abc", storage="mysql://thanh41@143.248.158.41/myOptuna",
+                pruner=optuna.pruners.HyperbandPruner(min_resource=2, max_resource=args.epoch, reduction_factor=3), # keep 1/3 of trials
+            )
+
+        else:
+            # optuna.optuna.pruners.MedianPruner(n_startup_trials =3, n_warmup_steps=50, interval_steps=2, n_min_trials=1),start pruning after 3 trials and 50 steps
+            study = optuna.load_study(
+                study_name=args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
+                pruner=optuna.pruners.HyperbandPruner(min_resource=50, max_resource=args.epoch, reduction_factor=3)
+            )
+            
+        study.optimize(lambda trial: objective(trial, args), n_trials=NUM_TRIALS)
         print(study.best_params)
