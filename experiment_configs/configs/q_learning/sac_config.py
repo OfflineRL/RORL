@@ -17,12 +17,12 @@ def get_config(
         obs_dim,
         action_dim,
         replay_buffer,
-        efficient="RANK1",
+        efficient="RANKGAUSE",
 ):
     """
     Policy construction
     """
-    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANK1"]
+    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANK1","RANKGAUSE"]
     num_qs = variant['trainer_kwargs']['num_qs']
     M = variant['policy_kwargs']['layer_size']
     num_q_layers = variant['policy_kwargs']['num_q_layers']
@@ -58,6 +58,31 @@ def get_config(
         )
 
         trainer = sac.SACTrainer(
+            env=eval_env,
+            policy=policy,
+            qfs=qfs,
+            target_qfs=target_qfs,
+            replay_buffer=replay_buffer,
+            norm_input=norm_input,
+            obs_std=obs_norm_std,
+            **variant['trainer_kwargs'],
+        )
+
+    elif efficient == "RANKGAUSE":
+        qfs, target_qfs = ppp.group_init(
+            2,
+            networks.BatchEnsembleGaussMLP,
+            ensemble_size=num_qs,
+            hidden_sizes=[M] * num_q_layers,
+            input_size=obs_dim + action_dim,
+            output_size=1,
+            layer_norm=None,
+            norm_input=norm_input,
+            obs_norm_mean=obs_norm_mean,
+            obs_norm_std=obs_norm_std,
+        )
+
+        trainer = sac.SACTrainerRankOneGause(
             env=eval_env,
             policy=policy,
             qfs=qfs,
