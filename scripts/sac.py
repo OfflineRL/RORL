@@ -108,6 +108,7 @@ def main(args):
         variant['trainer_kwargs']['q_ood_uncertainty_reg'] = args.q_ood_uncertainty_reg
         variant['trainer_kwargs']['q_ood_uncertainty_reg_min'] = args.q_ood_uncertainty_reg_min
         variant['trainer_kwargs']['q_ood_uncertainty_decay'] = args.q_ood_uncertainty_decay
+        variant['trainer_kwargs']['q_ind_uncertainty_reg'] = args.q_ind_uncertainty_reg
 
     # experiment name
     experiment_kwargs['exp_postfix'] = ''
@@ -157,18 +158,22 @@ def objective(trial, args):
     args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
     args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)
     args.num_qs = trial.suggest_int("num_qs", 3, 30)
-    args.policy_smooth_reg = trial.suggest_float(
-        "policy_smooth_reg", 1e-4, 1e-2)
-    args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-4, 1e-2)
-    args.q_smooth_tau = trial.suggest_float("q_smooth_tau", 1e-2, 1)
-    args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1)
-    args.q_ood_reg = trial.suggest_float("q_ood_reg", 1e-4, 1)
+
+    # smooth
+    args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
+    args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-2, 1)
+    # ind penalty
+    args.q_ind_uncertainty_reg = trial.suggest_float(
+        "q_ind_uncertainty_reg", 0, 5)
+    # ood penalty
+    args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1e-1)
+    args.q_ood_reg = trial.suggest_float("q_ood_reg", 0, 1)
     args.q_ood_uncertainty_reg = trial.suggest_float(
-        "q_ood_uncertainty_reg", 1e-4, 1)
+        "q_ood_uncertainty_reg", 0, 5)
 
     main(args)
 
-    return -logger.eval_mean_return
+    return logger.eval_mean_return
 
 
 if __name__ == '__main__':
@@ -252,6 +257,8 @@ if __name__ == '__main__':
     parser.add_argument('--q_ood_uncertainty_reg', default=0, type=float)
     parser.add_argument('--q_ood_uncertainty_reg_min', default=0, type=float)
     parser.add_argument('--q_ood_uncertainty_decay', default=0, type=float)
+
+    parser.add_argument('--q_ind_uncertainty_reg', default=0, type=float)
     parser.add_argument('--tuning', action='store_true',
                         help='Tunning hyper-parameters')
 
@@ -263,7 +270,7 @@ if __name__ == '__main__':
         main(args)
     else:
         # optuna create-study --study-name "hopper-medium-expert-v2" --storage "mysql://thanh41@143.248.158.41/myOptuna"    
-        NUM_TRIALS = 10 
+        NUM_TRIALS = 5 
         TEST = False
         if TEST:        
             study = optuna.load_study(
@@ -274,7 +281,7 @@ if __name__ == '__main__':
         else:
             # optuna.optuna.pruners.MedianPruner(n_startup_trials =3, n_warmup_steps=50, interval_steps=2, n_min_trials=1),start pruning after 3 trials and 50 steps
             study = optuna.load_study(
-                study_name=args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
+                study_name="Gauss-"+args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
                 pruner=optuna.pruners.HyperbandPruner(min_resource=50, max_resource=args.epoch, reduction_factor=3)
             )
             

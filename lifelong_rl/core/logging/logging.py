@@ -376,7 +376,7 @@ class Logger(object):
             if self.tuning_trial is not None:
                 # smooth mean return for evaluation
                 eval_mean_return = self.smooth(np.array(self.historical_mean_returns))[-1]
-                score = -eval_mean_return
+                score = eval_mean_return
                 epoch = int(tabular_dict['Epoch'])
                 self.tuning_trial.report(score, epoch)
                 if self.tuning_trial.should_prune():

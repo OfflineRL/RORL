@@ -1248,7 +1248,7 @@ class SACTrainerRankOneGause(TorchTrainer):
             target_update_period=1,  # How often to update target networks
             max_q_backup=False,
             deterministic_backup=False,
-            policy_eval_start=0,
+            policy_eval_start=30000,
             eta=-1.0,
             num_qs=10,
             replay_buffer=None,
@@ -1268,6 +1268,7 @@ class SACTrainerRankOneGause(TorchTrainer):
             q_ood_uncertainty_reg=0,
             q_ood_uncertainty_reg_min=0,
             q_ood_uncertainty_decay=1e-6,
+            q_ind_uncertainty_reg=0,
     ):
         super().__init__()
 
@@ -1304,6 +1305,7 @@ class SACTrainerRankOneGause(TorchTrainer):
         self.q_ood_uncertainty_reg = q_ood_uncertainty_reg
         self.q_ood_uncertainty_reg_min = q_ood_uncertainty_reg_min
         self.q_ood_uncertainty_decay = q_ood_uncertainty_decay
+        self.q_ind_uncertainty_reg = q_ind_uncertainty_reg
 
         self.use_automatic_entropy_tuning = use_automatic_entropy_tuning
         if self.use_automatic_entropy_tuning:
@@ -1396,11 +1398,12 @@ class SACTrainerRankOneGause(TorchTrainer):
             alpha_loss = 0
             alpha = 1
         # (M,B,1)  mean, var
-        Q_means, Q_vars = self.qfs.sample(obs, new_obs_actions)  # TODO: Consider to detach Q value
+        with torch.no_grad():
+            Q_means, Q_vars = self.qfs.sample(obs, new_obs_actions)  # TODO: Consider to detach Q value
 
 
-        # Consider uses the min Q value or the mean Q value or the mean Q - alpha * var Q
-        q_new_actions = Q_means.min(axis=0)[0] #- 0.1 * Q_vars.min(dim=0) 
+        # Consider uses the min Q value (default)  the mean Q - alpha * var Q
+        q_new_actions = Q_means.mean(axis=0)
         
         if self._need_to_update_eval_statistics:
             self.eval_statistics['Qin_s_pi pessimistic'] = ptu.get_numpy(q_new_actions.mean())
@@ -1469,11 +1472,11 @@ class SACTrainerRankOneGause(TorchTrainer):
             with torch.no_grad():
                 target_q_means, target_q_var = self.target_qfs.sample(next_obs, new_next_actions)
 
-                # TODO: Consider to use the min Q value or the mean Q value or the mean Q - alpha * var Q
-                target_q_values = target_q_means.min(0)[0]
+                # TODO: Consider to use the min Q value (default) or the mean Q value or the mean Q - alpha * var Q
+                target_q_values = target_q_means.mean(0) - self.q_ind_uncertainty_reg * Q_vars.max(axis=0)[0] 
 
                 if self._need_to_update_eval_statistics:
-                    self.eval_statistics['Target_Q_value mean'] = ptu.get_numpy(target_q_values.mean())
+                    self.eval_statistics['Target_Q_value_s_next_pi'] = ptu.get_numpy(target_q_values.mean())
                     self.eval_statistics['Qin_s_next_pi means mean'] = ptu.get_numpy(target_q_means.mean())
                     self.eval_statistics['Qin_s_next_pi means std among Q'] = ptu.get_numpy(target_q_means.mean(axis=1).std())
                     self.eval_statistics['Qin_s_next_pi vars mean'] = ptu.get_numpy(target_q_var.mean())
