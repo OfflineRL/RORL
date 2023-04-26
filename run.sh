@@ -1,9 +1,10 @@
 # bash run.sh halfcheetah-medium-v2  halfcheetah_medium 1
 WANDB_RUN_GROUP=$2 CUDA_VISIBLE_DEVICES=$3 python -m scripts.sac --env_name $1 --seed 0 \
-    --norm_input --epoch 1000 --exp_prefix RORL_TUNE_GAUSS_NEW1  --tensorboard --wandb \
-    --policy_smooth_eps 0.1 --q_smooth_eps 0.001 \
+    --norm_input --epoch 1000 --exp_prefix RORL_GAUSS_SMOOTH_QPI_NOOOD  --tensorboard --wandb \
+    --policy_smooth_reg 0.1 --policy_smooth_eps 0.001 \
+    --q_smooth_reg 0.1 --q_smooth_eps 0.001 \
     --q_ind_uncertainty_reg 1.4\
-    --q_ood_uncertainty_reg 1.5 --q_ood_eps 0.03 --q_ood_reg 0.9    
+    --q_ood_reg 0.0 --q_ood_uncertainty_reg 1.5 --q_ood_eps 0.03     
 
 
 

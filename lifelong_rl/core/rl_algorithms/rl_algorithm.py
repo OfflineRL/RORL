@@ -181,7 +181,8 @@ class BaseRLAlgorithm(object, metaclass=abc.ABCMeta):
         """
         Misc
         """
-        logger.record_dict(_get_epoch_timings())
+        if not gt.DISABLED:
+            logger.record_dict(_get_epoch_timings())
         logger.record_tabular('Epoch', epoch)
         logger.dump_tabular(with_prefix=False, with_timestamp=False)
         gt.stamp('logging', unique=False)
