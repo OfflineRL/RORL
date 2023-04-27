@@ -151,7 +151,8 @@ class OfflineRLAlgorithm(object, metaclass=abc.ABCMeta):
         """
         # time stamp logging early for csv format
         gt.stamp('logging', unique=False)
-        logger.record_dict(_get_epoch_timings())
+        if not gt.DISABLED:
+            logger.record_dict(_get_epoch_timings())
         logger.record_tabular('Epoch', epoch)
         logger.dump_tabular(with_prefix=False, with_timestamp=False)
         #gt.stamp('logging', unique=False)
