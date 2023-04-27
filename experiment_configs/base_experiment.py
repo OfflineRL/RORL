@@ -64,8 +64,9 @@ def experiment(
     Reset timers
     (Useful if running multiple seeds from same command)
     """
-    gt.reset()
-    gt.start()
+    if not gt.DISABLED:
+        gt.reset()
+        gt.start()
     """
     Setup logging
     """
