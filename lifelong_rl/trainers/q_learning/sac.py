@@ -248,7 +248,8 @@ class SACTrainer(TorchTrainer):
         if not self.max_q_backup:
             preds = self.target_qfs.sample(next_obs, new_next_actions)
 
-            target_q_values = torch.min(preds, dim=0)[0]
+            target_q_values = torch.median(preds, dim=0)[0]
+            # target_q_values = torch.mean(preds, dim=0)
 
             if self._need_to_update_eval_statistics:
                 self.eval_statistics['Target_Q_value_s_next_pi'] = ptu.get_numpy(target_q_values.mean()) #537
@@ -300,7 +301,7 @@ class SACTrainer(TorchTrainer):
                     self.eval_statistics['ood_qs means penalty'] = ptu.get_numpy(ood_qs_pred.std(axis=0).mean())
 
                 ood_target = ood_qs_pred - self.q_ood_uncertainty_reg * ood_qs_pred.std(axis=0)
-                ADAPTIVE = True
+                ADAPTIVE = False
                 if ADAPTIVE:
                     masks = (ood_qs_pred.detach() - (1-delta_s.view(-1,1))*qs_pred.detach().repeat_interleave(size,dim=1)) > 0
                     ood_loss = (self.qf_criterion(ood_target.detach(), ood_qs_pred)*masks).mean()
@@ -310,12 +311,13 @@ class SACTrainer(TorchTrainer):
                 qfs_loss_total += self.q_ood_reg * ood_loss
 
             if self.q_ood_uncertainty_reg > 0:
-                self.q_ood_uncertainty_reg = max(self.q_ood_uncertainty_reg - self.q_ood_uncertainty_decay, self.q_ood_uncertainty_reg_min)
+                if not ADAPTIVE:
+                    self.q_ood_uncertainty_reg = max(self.q_ood_uncertainty_reg - self.q_ood_uncertainty_decay, self.q_ood_uncertainty_reg_min)
             if self._need_to_update_eval_statistics:
                 self.eval_statistics['Q OOD Loss'] = ptu.get_numpy(ood_loss) * self.q_ood_reg
                 self.eval_statistics['q_ood_uncertainty_reg'] = self.q_ood_uncertainty_reg
                 if ADAPTIVE:
-                    self.eval_statistics['q_ood_uncertainty_reg'] = ptu.get_numpy(masks.sum())
+                    self.eval_statistics['mask sum'] = ptu.get_numpy(masks.sum())
         
         if self.eta > 0:
             qs_pred_grads = None
