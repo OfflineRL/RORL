@@ -157,11 +157,12 @@ class SACTrainer(TorchTrainer):
     def _get_noised_obs(self, obs, actions, eps):
         M, N, A = obs.shape[0], obs.shape[1], actions.shape[1]
         size = self.num_samples
-        delta_s = 2 * eps * self.obs_std * (torch.rand(size, N, device=ptu.device) - 0.5) 
+        noise = 2 * eps  * (torch.rand(M,size, N, device=ptu.device) - 0.5) 
+        delta_s = self.obs_std*noise
         tmp_obs = obs.reshape(-1, 1, N).repeat(1, size, 1).reshape(-1, N)
         delta_s = delta_s.reshape(1, size, N).repeat(M, 1, 1).reshape(-1, N)
         noised_obs = tmp_obs + delta_s
-        return M, A, size, noised_obs, delta_s
+        return M, A, size, noised_obs, noise.abs().mean(2)
 
 
     def train_from_torch(self, batch, indices):
@@ -299,7 +300,13 @@ class SACTrainer(TorchTrainer):
                     self.eval_statistics['ood_qs means penalty'] = ptu.get_numpy(ood_qs_pred.std(axis=0).mean())
 
                 ood_target = ood_qs_pred - self.q_ood_uncertainty_reg * ood_qs_pred.std(axis=0)
-                ood_loss = self.qf_criterion(ood_target.detach(), ood_qs_pred).mean()
+                ADAPTIVE = True
+                if ADAPTIVE:
+                    masks = (ood_qs_pred.detach() - (1-delta_s.view(-1,1))*qs_pred.detach().repeat_interleave(size,dim=1)) > 0
+                    ood_loss = (self.qf_criterion(ood_target.detach(), ood_qs_pred)*masks).mean()
+                else:
+                    ood_loss = self.qf_criterion(ood_target.detach(), ood_qs_pred).mean()
+
                 qfs_loss_total += self.q_ood_reg * ood_loss
 
             if self.q_ood_uncertainty_reg > 0:
@@ -307,6 +314,8 @@ class SACTrainer(TorchTrainer):
             if self._need_to_update_eval_statistics:
                 self.eval_statistics['Q OOD Loss'] = ptu.get_numpy(ood_loss) * self.q_ood_reg
                 self.eval_statistics['q_ood_uncertainty_reg'] = self.q_ood_uncertainty_reg
+                if ADAPTIVE:
+                    self.eval_statistics['q_ood_uncertainty_reg'] = ptu.get_numpy(masks.sum())
         
         if self.eta > 0:
             qs_pred_grads = None
