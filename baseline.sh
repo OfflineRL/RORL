@@ -23,13 +23,13 @@
 
 WANDB_RUN_GROUP=$3 CUDA_VISIBLE_DEVICES=$1 python -m scripts.sac --env_name $2 --seed 0 \
     --norm_input --load_config_type benchmark --epoch 1000\
-    --exp_prefix RORL_BASELINE  --tensorboard --wandb
+    --exp_prefix RORL_BASELINE_CONFIG_MIMIC  --tensorboard --wandb
 
-WANDB_RUN_GROUP=$3 CUDA_VISIBLE_DEVICES=$1 python -m scripts.sac --env_name $2 --seed 1 \
-    --norm_input --load_config_type benchmark --epoch 1000\
-    --exp_prefix RORL_BASELINE --tensorboard --wandb
+# WANDB_RUN_GROUP=$3 CUDA_VISIBLE_DEVICES=$1 python -m scripts.sac --env_name $2 --seed 1 \
+#     --norm_input --load_config_type benchmark --epoch 1000\
+#     --exp_prefix RORL_BASELINE --tensorboard --wandb
 
 
-WANDB_RUN_GROUP=$3 CUDA_VISIBLE_DEVICES=$1 python -m scripts.sac --env_name $2 --seed 2 \
-    --norm_input --load_config_type benchmark --epoch 1000\
-    --exp_prefix RORL_BASELINE --tensorboard --wandb
+# WANDB_RUN_GROUP=$3 CUDA_VISIBLE_DEVICES=$1 python -m scripts.sac --env_name $2 --seed 2 \
+#     --norm_input --load_config_type benchmark --epoch 1000\
+#     --exp_prefix RORL_BASELINE --tensorboard --wandb

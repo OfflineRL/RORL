@@ -1,13 +1,13 @@
 benchmark_config_dict = {
     'halfcheetah-default':{
-        'policy_smooth_reg': 0.1,
-        'q_smooth_reg': 0.0001,
+        'policy_smooth_reg': 0.0,
+        'q_smooth_reg': 0.0,
         'q_smooth_tau': 0.2,
-        'q_ood_eps': 0.00,
-        'q_ood_reg': 0.0,
-        'q_ood_uncertainty_reg': 0.0,
-        'q_ood_uncertainty_reg_min': 0.0,
-        'q_ood_uncertainty_decay': float(0)
+        'q_ood_eps': 0.03,
+        'q_ood_reg': 0.9,
+        'q_ood_uncertainty_reg': 1.5,
+        'q_ood_uncertainty_reg_min': 0.5,
+        'q_ood_uncertainty_decay': float(1e-5)
     },
 
     'halfcheetah-random-v2':{
@@ -17,7 +17,7 @@ benchmark_config_dict = {
     },
     'halfcheetah-medium-v2':{
         'num_samples': 10,
-        'policy_smooth_eps': 0.001,
+        'policy_smooth_eps': 0.1,
         'q_smooth_eps': 0.001,
     },
     'halfcheetah-medium-expert-v2':{

@@ -17,7 +17,7 @@ def get_config(
         obs_dim,
         action_dim,
         replay_buffer,
-        efficient="RANKGAUSE",
+        efficient="ENSAMBLE",
 ):
     """
     Policy construction

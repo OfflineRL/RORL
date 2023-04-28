@@ -852,7 +852,7 @@ class ParallelizedEnsembleFlattenMLP(nn.Module):
 
     def sample(self, *inputs):
         preds = self.forward(*inputs)
-        return torch.min(preds, dim=0)[0]
+        return preds
 
     def fit_input_stats(self, data, mask=None):
         raise NotImplementedError

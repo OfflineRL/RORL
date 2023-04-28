@@ -192,7 +192,14 @@ class SACTrainer(TorchTrainer):
             alpha_loss = 0
             alpha = 1
         # (B,1)
-        q_new_actions = self.qfs.sample(obs, new_obs_actions)
+        preds = self.qfs.sample(obs, new_obs_actions)
+
+        if self._need_to_update_eval_statistics:
+            self.eval_statistics['Qin_s_pi means mean'] = ptu.get_numpy(preds.mean())  # 535
+            self.eval_statistics['Qin_s_pi means std among Q'] = ptu.get_numpy(preds.mean(axis=1).std())   # Very small 
+            self.eval_statistics['Qin_s_pi means min'] = ptu.get_numpy(preds.min(axis=0)[0].mean())  # 530
+
+        q_new_actions = torch.min(preds, dim=0)[0]
 
         policy_loss = (alpha * log_pi - q_new_actions).mean()
 
@@ -227,6 +234,10 @@ class SACTrainer(TorchTrainer):
         # (num_qs, batch_size, output_size) (M,B,1)
         qs_pred = self.qfs(obs, actions)
 
+        if self._need_to_update_eval_statistics:
+            self.eval_statistics['Qin_s_a means mean'] = ptu.get_numpy(qs_pred.mean()) # 536
+            self.eval_statistics['Qin_s_a means std among Q'] = ptu.get_numpy(qs_pred.mean(axis=1).std()) # 0.3
+
         new_next_actions, _, _, new_log_pi, *_ = self.policy(
             next_obs,
             reparameterize=False,
@@ -234,7 +245,15 @@ class SACTrainer(TorchTrainer):
         )
 
         if not self.max_q_backup:
-            target_q_values = self.target_qfs.sample(next_obs, new_next_actions)
+            preds = self.target_qfs.sample(next_obs, new_next_actions)
+
+            target_q_values = torch.min(preds, dim=0)[0]
+
+            if self._need_to_update_eval_statistics:
+                self.eval_statistics['Target_Q_value_s_next_pi'] = ptu.get_numpy(target_q_values.mean()) #537
+                self.eval_statistics['Qin_s_next_pi means mean'] = ptu.get_numpy(preds.mean()) # 537
+                self.eval_statistics['Qin_s_next_pi means std among Q'] = ptu.get_numpy(preds.mean(axis=1).std()) # 0.1
+
             if not self.deterministic_backup:
                 target_q_values -= alpha * new_log_pi
         else:
@@ -273,6 +292,12 @@ class SACTrainer(TorchTrainer):
                 M, A, size, noised_obs, delta_s = self._get_noised_obs(obs, actions, self.q_ood_eps)
                 ood_actions, _, _, _, *_ = self.policy(noised_obs, reparameterize=False)
                 ood_qs_pred = self.qfs(noised_obs, ood_actions)
+
+                if self._need_to_update_eval_statistics:
+                    self.eval_statistics['ood_qs means mean'] = ptu.get_numpy(ood_qs_pred.mean()) # 537
+                    self.eval_statistics['ood_qs means std among Q'] = ptu.get_numpy(ood_qs_pred.mean(axis=1).std()) # 0.3
+                    self.eval_statistics['ood_qs means penalty'] = ptu.get_numpy(ood_qs_pred.std(axis=0).mean())
+
                 ood_target = ood_qs_pred - self.q_ood_uncertainty_reg * ood_qs_pred.std(axis=0)
                 ood_loss = self.qf_criterion(ood_target.detach(), ood_qs_pred).mean()
                 qfs_loss_total += self.q_ood_reg * ood_loss
