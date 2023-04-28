@@ -160,7 +160,7 @@ class SACTrainer(TorchTrainer):
         noise = 2 * eps  * (torch.rand(M,size, N, device=ptu.device) - 0.5) 
         delta_s = self.obs_std*noise
         tmp_obs = obs.reshape(-1, 1, N).repeat(1, size, 1).reshape(-1, N)
-        delta_s = delta_s.reshape(1, size, N).repeat(M, 1, 1).reshape(-1, N)
+        delta_s = delta_s.reshape(-1, N)
         noised_obs = tmp_obs + delta_s
         return M, A, size, noised_obs, noise.abs().mean(2)
 

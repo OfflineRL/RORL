@@ -6,8 +6,8 @@ benchmark_config_dict = {
         'q_ood_eps': 0.03,
         'q_ood_reg': 0.9,
         'q_ood_uncertainty_reg': 1.5,
-        'q_ood_uncertainty_reg_min': 0.5,
-        'q_ood_uncertainty_decay': float(1e-5)
+        'q_ood_uncertainty_reg_min': 1.5,
+        'q_ood_uncertainty_decay': float(0)
     },
 
     'halfcheetah-random-v2':{
