@@ -16,13 +16,14 @@ def get_config(
         eval_env,
         obs_dim,
         action_dim,
-        replay_buffer,
-        efficient="RANKGAUSE",
+        replay_buffer
 ):
     """
     Policy construction
     """
-    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANKONE","RANKGAUSE"]
+
+    algorithm = variant['algorithm']
+    assert algorithm in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANKONE","RANKGAUSE"]
     num_qs = variant['trainer_kwargs']['num_qs']
     M = variant['policy_kwargs']['layer_size']
     num_q_layers = variant['policy_kwargs']['num_q_layers']
@@ -43,7 +44,7 @@ def get_config(
         obs_norm_std=obs_norm_std,
     )
 
-    if efficient == "ENSAMBLE":
+    if algorithm == "ENSAMBLE":
         qfs, target_qfs = ppp.group_init(
             2,
             ParallelizedEnsembleFlattenMLP,
@@ -68,7 +69,7 @@ def get_config(
             **variant['trainer_kwargs'],
         )
 
-    elif efficient == "RANKGAUSE":
+    elif algorithm == "RANKGAUSE":
         qfs, target_qfs = ppp.group_init(
             2,
             networks.BatchEnsembleGaussMLP,
@@ -91,9 +92,10 @@ def get_config(
             norm_input=norm_input,
             obs_std=obs_norm_std,
             **variant['trainer_kwargs'],
+            **variant['gauss'],
         )
 
-    elif efficient == "RANKONE":
+    elif algorithm == "RANKONE":
         qfs, target_qfs = ppp.group_init(
             2,
             networks.BatchEnsembleFlattenRank1,
@@ -119,7 +121,7 @@ def get_config(
         )
 
 
-    elif efficient == "MIMO":
+    elif algorithm == "MIMO":
         qfs, target_qfs = ppp.group_init(
             2,
             networks.BatchEnsembleFlattenMLP,
@@ -144,7 +146,7 @@ def get_config(
             **variant['trainer_kwargs'],
         )
 
-    elif efficient == "BATCH_ENSEMBLE":
+    elif algorithm == "BATCH_ENSEMBLE":
         qfs, target_qfs = ppp.group_init(
             2,
             networks.BatchEnsembleFlattenMLP,

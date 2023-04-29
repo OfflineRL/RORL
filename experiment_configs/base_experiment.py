@@ -73,7 +73,7 @@ def experiment(
     date_time = '_'.join(time.ctime().split(' '))
     seed = variant['seed']
     log_dir = os.path.join(
-        '{}{}'.format(variant['algorithm'], exp_postfix),
+        '{}_{}'.format(variant['algorithm'], exp_postfix),
         '{}_{}_{}'.format(variant['env_name'], date_time,  seed))
 
     print('setup logger')

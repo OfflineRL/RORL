@@ -60,7 +60,9 @@ def main(args):
         log_to_tensorboard=False,
         base_log_dir=args.base_log_dir,
     )
-
+    # algorithm 
+    variant['algorithm'] = args.algorithm
+    
     # Variant
     variant['env_name'] = args.env_name
     variant['seed'] = args.seed
@@ -108,7 +110,7 @@ def main(args):
         variant['trainer_kwargs']['q_ood_uncertainty_reg'] = args.q_ood_uncertainty_reg
         variant['trainer_kwargs']['q_ood_uncertainty_reg_min'] = args.q_ood_uncertainty_reg_min
         variant['trainer_kwargs']['q_ood_uncertainty_decay'] = args.q_ood_uncertainty_decay
-        variant['trainer_kwargs']['q_ind_uncertainty_reg'] = args.q_ind_uncertainty_reg
+        variant['gauss']['q_ind_uncertainty_reg'] = args.q_ind_uncertainty_reg
 
     # experiment name
     experiment_kwargs['exp_postfix'] = ''
@@ -178,7 +180,12 @@ def objective(trial, args):
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-
+    # Algorithm
+    # Supported ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANKONE","RANKGAUSE"]
+    parser.add_argument('-a',
+                        '--algorithm',
+                        default='RANKONE',
+                        type=str)
     # Variant
     parser.add_argument('-e',
                         '--env_name',
@@ -282,7 +289,7 @@ if __name__ == '__main__':
             # optuna.optuna.pruners.MedianPruner(n_startup_trials =3, n_warmup_steps=50, interval_steps=2, n_min_trials=1),start pruning after 3 trials and 50 steps
             study = optuna.load_study(
                 study_name="Gauss-"+args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
-                pruner=optuna.pruners.HyperbandPruner(min_resource=50, max_resource=args.epoch, reduction_factor=3)
+                pruner=optuna.pruners.HyperbandPruner(min_resource=100, max_resource=args.epoch, reduction_factor=3)
             )
             
         study.optimize(lambda trial: objective(trial, args), n_trials=NUM_TRIALS)
