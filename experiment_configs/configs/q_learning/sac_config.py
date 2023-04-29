@@ -22,7 +22,7 @@ def get_config(
     """
     Policy construction
     """
-    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANK1","RANKGAUSE"]
+    assert efficient in ["ENSAMBLE", "MIMO", "BATCH_ENSEMBLE","RANKONE","RANKGAUSE"]
     num_qs = variant['trainer_kwargs']['num_qs']
     M = variant['policy_kwargs']['layer_size']
     num_q_layers = variant['policy_kwargs']['num_q_layers']
@@ -93,7 +93,7 @@ def get_config(
             **variant['trainer_kwargs'],
         )
 
-    elif efficient == "RANK1":
+    elif efficient == "RANKONE":
         qfs, target_qfs = ppp.group_init(
             2,
             networks.BatchEnsembleFlattenRank1,
