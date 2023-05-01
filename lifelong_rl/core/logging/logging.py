@@ -202,7 +202,7 @@ class Logger(object):
             project=project_name,
             config=config,
             entity=entity_name,
-            name=config['env_name']+'_'+config['prefix']+'_SEED'+str(config['seed']) 
+            name=config['env_name']+'_'+config['algorithm']+'_'+config['prefix']+'_SEED'+str(config['seed']) 
         )
         self._writer = SummaryWriter(self.log_dir)
 
