@@ -659,63 +659,73 @@ class SACTrainerRank1(TorchTrainer):
         """
         Policy and Alpha Loss
         """
-        # (B,A)= (256,6)             
-        new_obs_actions, policy_mean, policy_log_std, log_pi, *_ = self.policy(
-            obs,
-            reparameterize=True,
-            return_log_prob=True,
-        )
+        TRAIN_POLICY = (self._num_train_steps%2 == 1) 
+        if TRAIN_POLICY:
+            # (B,A)= (256,6)             
+            new_obs_actions, policy_mean, policy_log_std, log_pi, *_ = self.policy(
+                obs,
+                reparameterize=True,
+                return_log_prob=True,
+            )
 
-        if self.use_automatic_entropy_tuning:
-            alpha_loss = -(self.log_alpha *
-                           (log_pi + self.target_entropy).detach()).mean()
-            alpha = self.log_alpha.exp()
-        else:
-            alpha_loss = 0
-            alpha = 1
-        # (B,1)
-        preds = self.qfs.sample(obs, new_obs_actions)  
-
-
-        if self._need_to_update_eval_statistics:
-            self.eval_statistics['Qin_s_pi means mean'] = ptu.get_numpy(preds.mean())  # 535
-            self.eval_statistics['Qin_s_pi means std among Q'] = ptu.get_numpy(preds.mean(axis=1).std())   # Very small 
-            self.eval_statistics['Qin_s_pi means min'] = ptu.get_numpy(preds.min(axis=0)[0].mean())  # 530
+            if self.use_automatic_entropy_tuning:
+                alpha_loss = -(self.log_alpha *
+                            (log_pi + self.target_entropy).detach()).mean()
+                alpha = self.log_alpha.exp()
+            else:
+                alpha_loss = 0
+                alpha = 1
+            # (B,1)
+            preds = self.qfs.sample(obs, new_obs_actions)  
 
 
-        q_new_actions = torch.min(preds, dim=0)[0]
-
-        policy_loss = (alpha * log_pi - q_new_actions).mean()
-
-        if self._num_train_steps < self.policy_eval_start:
-            """
-            For the initial few epochs, try doing behaivoral cloning, if needed
-            conventionally, there's not much difference in performance with having 20k 
-            gradient steps here, or not having it
-            """
-            policy_log_prob = self.policy.get_log_probs(obs.detach(), actions)
-            policy_loss = (alpha * log_pi - policy_log_prob).mean()
-
-        
-        if self.policy_smooth_eps > 0 and self.policy_smooth_reg > 0:
-            M, A, size, noised_obs,_ = self._get_noised_obs(obs, actions, self.policy_smooth_eps)
-            # (B*size,A)
-            _, noised_policy_mean, noised_policy_log_std, _, *_ = self.policy(noised_obs,reparameterize=True)
-            action_dist = torch.distributions.Normal(policy_mean.repeat_interleave(size, dim=0),
-                                                    policy_log_std.exp().repeat_interleave(size, dim=0))
-                                                    
-            noised_action_dist = torch.distributions.Normal(noised_policy_mean, noised_policy_log_std.exp())
-            kl_loss = kl_divergence(action_dist, noised_action_dist).sum(axis=-1) + kl_divergence(noised_action_dist, action_dist).sum(axis=-1)
-            kl_loss = kl_loss.view(M, size)
-            max_values, _ = torch.max(kl_loss, dim=1)
-            kl_loss_max = torch.mean(max_values)
-
-
-
-            # noised_states_selected = noised_obs[np.arange(M), max_id]
-            policy_loss += self.policy_smooth_reg * kl_loss_max
             if self._need_to_update_eval_statistics:
-                self.eval_statistics['Policy Smooth Loss'] = ptu.get_numpy(kl_loss_max) * self.policy_smooth_reg
+                self.eval_statistics['Qin_s_pi means mean'] = ptu.get_numpy(preds.mean())  # 535
+                self.eval_statistics['Qin_s_pi means std among Q'] = ptu.get_numpy(preds.mean(axis=1).std())   # Very small 
+                self.eval_statistics['Qin_s_pi means min'] = ptu.get_numpy(preds.min(axis=0)[0].mean())  # 530
+
+
+            # q_new_actions = torch.mean(preds, dim=0) - self.q_ood_uncertainty_reg*torch.var(preds, dim=0)
+            q_new_actions = torch.min(preds, dim=0)[0]
+
+            policy_log_prob = self.policy.get_log_probs(obs.detach(), actions)
+
+            policy_loss = (alpha * log_pi - self.q_ood_reg*q_new_actions/q_new_actions.detach().abs().mean() - policy_log_prob).mean() 
+            if self._need_to_update_eval_statistics:
+                self.eval_statistics['BC log prob'] = ptu.get_numpy(policy_log_prob.mean())  # Around 4
+                self.eval_statistics['Mean_lcb'] = ptu.get_numpy(q_new_actions.detach().abs().mean()) 
+            # import pdb; pdb.set_trace()
+
+            if self._num_train_steps < self.policy_eval_start:
+                """
+                For the initial few epochs, try doing behaivoral cloning, if needed
+                conventionally, there's not much difference in performance with having 20k 
+                gradient steps here, or not having it
+                """
+                pass
+                #policy_log_prob = self.policy.get_log_probs(obs.detach(), actions)
+                #policy_loss = (alpha * log_pi - policy_log_prob).mean()
+
+            
+            if self.policy_smooth_eps > 0 and self.policy_smooth_reg > 0:
+                M, A, size, noised_obs,_ = self._get_noised_obs(obs, actions, self.policy_smooth_eps)
+                # (B*size,A)
+                _, noised_policy_mean, noised_policy_log_std, _, *_ = self.policy(noised_obs,reparameterize=True)
+                action_dist = torch.distributions.Normal(policy_mean.repeat_interleave(size, dim=0),
+                                                        policy_log_std.exp().repeat_interleave(size, dim=0))
+                                                        
+                noised_action_dist = torch.distributions.Normal(noised_policy_mean, noised_policy_log_std.exp())
+                kl_loss = kl_divergence(action_dist, noised_action_dist).sum(axis=-1) + kl_divergence(noised_action_dist, action_dist).sum(axis=-1)
+                kl_loss = kl_loss.view(M, size)
+                max_values, _ = torch.max(kl_loss, dim=1)
+                kl_loss_max = torch.mean(max_values)
+
+
+
+                # noised_states_selected = noised_obs[np.arange(M), max_id]
+                policy_loss += self.policy_smooth_reg * kl_loss_max
+                if self._need_to_update_eval_statistics:
+                    self.eval_statistics['Policy Smooth Loss'] = ptu.get_numpy(kl_loss_max) * self.policy_smooth_reg
 
         """
         QF Loss
@@ -732,6 +742,7 @@ class SACTrainerRank1(TorchTrainer):
         if not self.max_q_backup:
             with torch.no_grad():
                 preds = self.target_qfs.sample(next_obs, new_next_actions)
+                # target_q_values = torch.mean(preds, dim=0) - self.q_ood_uncertainty_reg*torch.var(preds, dim=0)
                 target_q_values = torch.min(preds, dim=0)[0]
 
                 if self._need_to_update_eval_statistics:
@@ -739,7 +750,7 @@ class SACTrainerRank1(TorchTrainer):
                     self.eval_statistics['Qin_s_next_pi means mean'] = ptu.get_numpy(preds.mean()) # 537
                     self.eval_statistics['Qin_s_next_pi means std among Q'] = ptu.get_numpy(preds.mean(axis=1).std()) # 0.1
                 if not self.deterministic_backup:
-                    target_q_values -= alpha * new_log_pi
+                    target_q_values -= self.log_alpha.exp() * new_log_pi
 
         future_values = (1. - terminals) * self.discount * target_q_values
         q_target = self.reward_scale * rewards + future_values
@@ -764,39 +775,41 @@ class SACTrainerRank1(TorchTrainer):
             if self._need_to_update_eval_statistics:
                 self.eval_statistics['Q Smooth Loss'] = ptu.get_numpy(noise_Q_loss_max) * self.q_smooth_reg
                 
-        if self.q_ood_reg > 0: # self.q_ood_eps = 0 for PBRL
-            ood_loss = torch.zeros(1, device=ptu.device)[0]
+        # if self.q_ood_reg > 0: # self.q_ood_eps = 0 for PBRL
+        #     ood_loss = torch.zeros(1, device=ptu.device)[0]
 
 
-            if self.q_ood_uncertainty_reg > 0:
-                M, A, size, noised_obs,_ = self._get_noised_obs(obs, actions, self.q_ood_eps)
-                ood_actions, _, _, _, *_ = self.policy(noised_obs, reparameterize=False)
-                ood_qs_pred = self.qfs(noised_obs, ood_actions)
-                if self._need_to_update_eval_statistics:
-                    self.eval_statistics['ood_qs means mean'] = ptu.get_numpy(ood_qs_pred.mean()) # 537
-                    self.eval_statistics['ood_qs means std among Q'] = ptu.get_numpy(ood_qs_pred.mean(axis=1).std()) # 0.3
-                    self.eval_statistics['ood_qs means penalty'] = ptu.get_numpy(ood_qs_pred.std(axis=0).mean())
+        #     if self.q_ood_uncertainty_reg > 0:
+        #         M, A, size, noised_obs,_ = self._get_noised_obs(obs, actions, self.q_ood_eps)
+        #         ood_actions, _, _, _, *_ = self.policy(noised_obs, reparameterize=False)
+        #         ood_qs_pred = self.qfs(noised_obs, ood_actions)
+        #         if self._need_to_update_eval_statistics:
+        #             self.eval_statistics['ood_qs means mean'] = ptu.get_numpy(ood_qs_pred.mean()) # 537
+        #             self.eval_statistics['ood_qs means std among Q'] = ptu.get_numpy(ood_qs_pred.mean(axis=1).std()) # 0.3
+        #             self.eval_statistics['ood_qs means penalty'] = ptu.get_numpy(ood_qs_pred.std(axis=0).mean())
 
-                q_ood_uncertainty_reg_step = self.cosine_decay_with_warmup(self._num_train_steps,self.q_ood_uncertainty_reg)
-                ood_target = ood_qs_pred - q_ood_uncertainty_reg_step * ood_qs_pred.std(axis=0)
-                ood_loss = self.qf_criterion(ood_target.detach(), ood_qs_pred).mean()
-                qfs_loss_total += self.q_ood_reg * ood_loss
+        #         q_ood_uncertainty_reg_step = self.cosine_decay_with_warmup(self._num_train_steps,self.q_ood_uncertainty_reg)
+        #         ood_target = ood_qs_pred - q_ood_uncertainty_reg_step * ood_qs_pred.std(axis=0)
+        #         ood_loss = self.qf_criterion(ood_target.detach(), ood_qs_pred).mean()
+        #         qfs_loss_total += self.q_ood_reg * ood_loss
 
             
 
-            if self._need_to_update_eval_statistics:
-                self.eval_statistics['Q OOD Loss'] = ptu.get_numpy(ood_loss) * self.q_ood_reg
-                self.eval_statistics['q_ood_uncertainty_reg'] = q_ood_uncertainty_reg_step
+        #     if self._need_to_update_eval_statistics:
+        #         self.eval_statistics['Q OOD Loss'] = ptu.get_numpy(ood_loss) * self.q_ood_reg
+        #         self.eval_statistics['q_ood_uncertainty_reg'] = q_ood_uncertainty_reg_step
         
 
-        if self.use_automatic_entropy_tuning and not self.deterministic_backup:
-            self.alpha_optimizer.zero_grad()
-            alpha_loss.backward()
-            self.alpha_optimizer.step()
-
-        self.policy_optimizer.zero_grad()
-        policy_loss.backward()
-        self.policy_optimizer.step()
+        if TRAIN_POLICY:
+            if self.use_automatic_entropy_tuning and not self.deterministic_backup:
+                self.alpha_optimizer.zero_grad()
+                alpha_loss.backward()
+                self.alpha_optimizer.step()
+            
+            # if self._num_train_steps %2 == 0:
+            self.policy_optimizer.zero_grad()
+            policy_loss.backward()
+            self.policy_optimizer.step()
 
         self.qfs_optimizer.zero_grad()
         qfs_loss_total.backward()
@@ -808,15 +821,37 @@ class SACTrainerRank1(TorchTrainer):
         """
         if self._need_to_update_eval_statistics:
             self._need_to_update_eval_statistics = False
+            if TRAIN_POLICY:
+                policy_loss = ptu.get_numpy(log_pi - q_new_actions).mean()
+                policy_avg_std = ptu.get_numpy(torch.exp(policy_log_std)).mean()
 
-            policy_loss = ptu.get_numpy(log_pi - q_new_actions).mean()
-            policy_avg_std = ptu.get_numpy(torch.exp(policy_log_std)).mean()
-            self.eval_statistics['QFs Loss'] = np.mean(
-                ptu.get_numpy(qfs_loss)) / self.num_qs
+                self.eval_statistics.update(
+                    create_stats_ordered_dict(
+                    'Log Pis',
+                    ptu.get_numpy(log_pi),
+                ))
+                self.eval_statistics.update(
+                create_stats_ordered_dict(
+                    'Policy mu',
+                    ptu.get_numpy(policy_mean),
+                ))
+                self.eval_statistics.update(
+                    create_stats_ordered_dict(
+                    'Policy log std',
+                    ptu.get_numpy(policy_log_std),
+                ))
+                self.eval_statistics['Policy std'] = np.mean(policy_avg_std)
+
+                if self.use_automatic_entropy_tuning:
+                    self.eval_statistics['Alpha'] = alpha.item()
+                    self.eval_statistics['Alpha Loss'] = alpha_loss.item()
+            
+                self.eval_statistics['Policy Loss'] = np.mean(policy_loss)
+
             if self.eta > 0:
                 self.eval_statistics['Q Grad Loss'] = np.mean(
                     ptu.get_numpy(grad_loss))
-            self.eval_statistics['Policy Loss'] = np.mean(policy_loss)
+            
 
             self.eval_statistics.update(
                 create_stats_ordered_dict(
@@ -829,26 +864,10 @@ class SACTrainerRank1(TorchTrainer):
                     ptu.get_numpy(q_target),
                 ))
 
-            self.eval_statistics.update(
-                create_stats_ordered_dict(
-                    'Log Pis',
-                    ptu.get_numpy(log_pi),
-                ))
-            self.eval_statistics.update(
-                create_stats_ordered_dict(
-                    'Policy mu',
-                    ptu.get_numpy(policy_mean),
-                ))
-            self.eval_statistics.update(
-                create_stats_ordered_dict(
-                    'Policy log std',
-                    ptu.get_numpy(policy_log_std),
-                ))
-            self.eval_statistics['Policy std'] = np.mean(policy_avg_std)
+            self.eval_statistics['QFs Loss'] = np.mean(
+                ptu.get_numpy(qfs_loss)) / self.num_qs           
 
-            if self.use_automatic_entropy_tuning:
-                self.eval_statistics['Alpha'] = alpha.item()
-                self.eval_statistics['Alpha Loss'] = alpha_loss.item()
+
 
     def try_update_target_networks(self):
         if self._num_train_steps % self.target_update_period == 0:

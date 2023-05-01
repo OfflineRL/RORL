@@ -23,10 +23,13 @@
 # bash tune.sh halfcheetah-medium-v2  halfcheetah_medium 1
 
 GTIMER_DISABLE=1 WANDB_RUN_GROUP=$2 CUDA_VISIBLE_DEVICES=$3 python -m scripts.sac --env_name $1 --seed 0 \
-    --norm_input --epoch 500 --exp_prefix RORL_TUNE_GAUSS_ON_RORL  \
+    --norm_input --epoch 1000 --exp_prefix TUNE_MIN_BC_SAC  \
     --policy_smooth_eps 0.000 --q_smooth_eps 0.000 \
-    --q_ind_uncertainty_reg 3\
-    --q_ood_uncertainty_reg 3 --q_ood_eps 0.01 --q_ood_reg 0.01   --tuning  
+    --policy_smooth_reg 0.0 --policy_smooth_eps 0.001 \
+    --q_smooth_reg 0.0 --q_smooth_eps 0.001 \
+    --q_ind_uncertainty_reg 0.0\
+    --q_ood_reg 10 --q_ood_uncertainty_reg 0.0 --q_ood_eps 0.03 \
+    --tuning     
 
 
 # WANDB_RUN_GROUP=$2 CUDA_VISIBLE_DEVICES=$3 python -m scripts.sac --env_name $1 --seed 0 \

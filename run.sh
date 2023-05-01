@@ -20,9 +20,17 @@
 
 
 WANDB_RUN_GROUP=$2 CUDA_VISIBLE_DEVICES=$3 python -m scripts.sac -a RANKONE --env_name $1 --seed 0 \
-    --norm_input --epoch 1000 --exp_prefix MIN  --tensorboard --wandb --policy_eval_start 0\
+    --norm_input --epoch 1000 --exp_prefix MIN_WITH_BC_NEWOOD_DELAYPI  --tensorboard --wandb --policy_eval_start 0\
     --policy_smooth_reg 0.0 --policy_smooth_eps 0.001 \
     --q_smooth_reg 0.0 --q_smooth_eps 0.001 \
     --q_ind_uncertainty_reg 0.0\
-    --q_ood_reg 0.9 --q_ood_uncertainty_reg 1.5 --q_ood_eps 0.03     
+    --q_ood_reg 10 --q_ood_uncertainty_reg 1.5 --q_ood_eps 0.03     
 
+
+# Debug mode
+# CUDA_VISIBLE_DEVICES=$2 python -m scripts.sac -a RANKONE --env_name $1 --seed 0 \
+#     --norm_input --epoch 1000 --exp_prefix MIN_WITH_BC_NO_OOD_DELAYPI --policy_eval_start 0\
+#     --policy_smooth_reg 0.0 --policy_smooth_eps 0.001 \
+#     --q_smooth_reg 0.0 --q_smooth_eps 0.001 \
+#     --q_ind_uncertainty_reg 0.0\
+#     --q_ood_reg 5 --q_ood_uncertainty_reg 1.5 --q_ood_eps 0.03     

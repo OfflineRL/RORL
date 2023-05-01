@@ -157,22 +157,22 @@ def main(args):
 def objective(trial, args):
     logger.set_tuning_trial(trial)
     # define hyper-parameters
-    args.batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
+    # args.batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
     args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
     args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)
     args.num_qs = trial.suggest_int("num_qs", 3, 30)
 
     # smooth
-    args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
-    args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-2, 1)
+    # args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
+    # args.q_smooth_reg = trial.suggest_float("q_smooth_reg", 1e-2, 1)
     # ind penalty
-    args.q_ind_uncertainty_reg = trial.suggest_float(
-        "q_ind_uncertainty_reg", 0, 5)
+    # args.q_ind_uncertainty_reg = trial.suggest_float(
+    #     "q_ind_uncertainty_reg", 0, 5)
     # ood penalty
-    args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1e-1)
-    args.q_ood_reg = trial.suggest_float("q_ood_reg", 0, 1)
-    args.q_ood_uncertainty_reg = trial.suggest_float(
-        "q_ood_uncertainty_reg", 0, 5)
+    # args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1e-1)
+    args.q_ood_reg = trial.suggest_float("q_ood_reg", 0.1, 1000)
+    # args.q_ood_uncertainty_reg = trial.suggest_float(
+    #     "q_ood_uncertainty_reg", 0, 5)
 
     main(args)
 
@@ -289,7 +289,7 @@ if __name__ == '__main__':
         else:
             # optuna.optuna.pruners.MedianPruner(n_startup_trials =3, n_warmup_steps=50, interval_steps=2, n_min_trials=1),start pruning after 3 trials and 50 steps
             study = optuna.load_study(
-                study_name="Gauss-"+args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
+                study_name="Rankonebc-"+args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
                 pruner=optuna.pruners.HyperbandPruner(min_resource=100, max_resource=args.epoch, reduction_factor=3)
             )
             
