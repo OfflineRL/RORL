@@ -91,8 +91,8 @@ def get_config(
             replay_buffer=replay_buffer,
             norm_input=norm_input,
             obs_std=obs_norm_std,
+            q_ind_uncertainty_reg=variant['q_ind_uncertainty_reg'],
             **variant['trainer_kwargs'],
-            **variant['gauss'],
         )
 
     elif algorithm == "RANKONE":

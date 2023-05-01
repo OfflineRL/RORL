@@ -110,7 +110,8 @@ def main(args):
         variant['trainer_kwargs']['q_ood_uncertainty_reg'] = args.q_ood_uncertainty_reg
         variant['trainer_kwargs']['q_ood_uncertainty_reg_min'] = args.q_ood_uncertainty_reg_min
         variant['trainer_kwargs']['q_ood_uncertainty_decay'] = args.q_ood_uncertainty_decay
-        variant['gauss']['q_ind_uncertainty_reg'] = args.q_ind_uncertainty_reg
+        variant['q_ind_uncertainty_reg'] = args.q_ind_uncertainty_reg
+        variant['trainer_kwargs']['policy_eval_start'] =args.policy_eval_start
 
     # experiment name
     experiment_kwargs['exp_postfix'] = ''
@@ -237,7 +238,7 @@ if __name__ == '__main__':
                         default=-1.0,
                         type=float,
                         help='eta for diversifying Q-ensemble. < 0 for SAC-N.')
-
+    parser.add_argument("--policy_eval_start", default=0, type=int)
     # reward preprocessing
     parser.add_argument("--reward_mean",
                         action='store_true',
