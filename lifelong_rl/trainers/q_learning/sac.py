@@ -732,7 +732,7 @@ class SACTrainerRank1(TorchTrainer):
         if not self.max_q_backup:
             with torch.no_grad():
                 preds = self.target_qfs.sample(next_obs, new_next_actions)
-                target_q_values = torch.mean(preds, dim=0)
+                target_q_values = torch.min(preds, dim=0)[0]
 
                 if self._need_to_update_eval_statistics:
                     self.eval_statistics['Target_Q_value_s_next_pi'] = ptu.get_numpy(target_q_values.mean()) #537
