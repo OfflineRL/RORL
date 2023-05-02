@@ -158,8 +158,8 @@ def objective(trial, args):
     logger.set_tuning_trial(trial)
     # define hyper-parameters
     # args.batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
-    args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
-    args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)
+    # args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
+    # args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)
     args.num_qs = trial.suggest_int("num_qs", 3, 30)
 
     # smooth
@@ -206,7 +206,7 @@ if __name__ == '__main__':
     parser.add_argument('--base_log_dir', default='results', type=str)
     parser.add_argument('--norm_input', action='store_true')
     parser.add_argument("--epoch", default=1000, type=int)
-    parser.add_argument("--batch_size", default=128, type=int)
+    parser.add_argument("--batch_size", default=512, type=int)
     parser.add_argument('--load_path', default='', type=str)
     parser.add_argument('--load_Qs', default='', type=str, help='Only load Qs')
 
@@ -289,7 +289,7 @@ if __name__ == '__main__':
         else:
             # optuna.optuna.pruners.MedianPruner(n_startup_trials =3, n_warmup_steps=50, interval_steps=2, n_min_trials=1),start pruning after 3 trials and 50 steps
             study = optuna.load_study(
-                study_name="Rankonebc-"+args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
+                study_name="Rankonebc1-"+args.env_name, storage="mysql://thanh41@143.248.158.41/myOptuna",
                 pruner=optuna.pruners.HyperbandPruner(min_resource=100, max_resource=args.epoch, reduction_factor=3)
             )
             

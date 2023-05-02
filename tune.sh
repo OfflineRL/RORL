@@ -8,16 +8,16 @@
 # bash tune.sh halfcheetah-medium-replay-v2 4
 
 # bash tune.sh hopper-random-v2 hopper_random 5
-# bash tune.sh hopper-expert-v2 hopper_expert 
-# bash tune.sh hopper-medium-v2 hopper_medium 7
+# bash tune.sh hopper-expert-v2 hopper_expert 2
+# bash tune.sh hopper-medium-v2 hopper_medium 3
 # bash tune.sh hopper-medium-expert-v2 hopper_random_medium_expert 8
 # bash tune.sh hopper-medium-replay-v2 hopper_random_medium_replay 9
 
-# bash tune.sh walker2d-random-v2 10
-# bash tune.sh walker2d-expert-v2 11
-# bash tune.sh walker2d-medium-v2 12
-# bash tune.sh walker2d-medium-expert-v2 13     
-# bash tune.sh walker2d-medium-replay-v2 14
+# bash tune.sh walker2d-random-v2 walker2d_random_tune 1
+# bash tune.sh walker2d-expert-v2 walker2d_expert 2
+# bash tune.sh walker2d-medium-v2 walker2d_medium 3
+# bash tune.sh walker2d-medium-expert-v2 walker2d_medium_expert 4     
+# bash tune.sh walker2d-medium-replay-v2 walker2d_medium_replay 5
 
 # NOW: bash tune.sh hopper-medium-expert-v2 hopper_medium_expert 1
 # bash tune.sh halfcheetah-medium-v2  halfcheetah_medium 1

@@ -690,7 +690,7 @@ class SACTrainerRank1(TorchTrainer):
 
             policy_log_prob = self.policy.get_log_probs(obs.detach(), actions)
 
-            policy_loss = (alpha * log_pi - self.q_ood_reg*q_new_actions/q_new_actions.detach().abs().mean() - policy_log_prob).mean() 
+            policy_loss = (alpha * log_pi - q_new_actions - self.q_ood_reg*policy_log_prob).mean() 
             if self._need_to_update_eval_statistics:
                 self.eval_statistics['BC log prob'] = ptu.get_numpy(policy_log_prob.mean())  # Around 4
                 self.eval_statistics['Mean_lcb'] = ptu.get_numpy(q_new_actions.detach().abs().mean()) 
