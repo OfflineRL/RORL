@@ -23,7 +23,7 @@
 # bash tune.sh halfcheetah-medium-v2  halfcheetah_medium 1
 
 GTIMER_DISABLE=1 WANDB_RUN_GROUP=$2 CUDA_VISIBLE_DEVICES=$3 python -m scripts.sac --env_name $1 --seed 0 \
-    --norm_input --epoch 1000 --exp_prefix TUNE_MIN_BC_SAC --tensorboard --wandb \
+    --norm_input --epoch 1000 --exp_prefix TUNE_MIN_BC_NOSCALE_SAC --tensorboard --wandb \
     --policy_smooth_eps 0.000 --q_smooth_eps 0.000 \
     --policy_smooth_reg 0.0 --policy_smooth_eps 0.001 \
     --q_smooth_reg 0.0 --q_smooth_eps 0.001 \
