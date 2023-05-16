@@ -39,7 +39,7 @@ def simple_evaluation(config, variant, obs_dim, action_dim, num_paths=5):
     else:   
         for _ in range(num_paths):
             path = rollout(eval_env, config['evaluation_policy'], 
-                                config['offline_kwargs']['max_path_length'], render=True)
+                                config['offline_kwargs']['max_path_length'], render=False)
             paths.append(path)
     return paths
 

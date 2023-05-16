@@ -160,7 +160,7 @@ def objective(trial, args):
     # args.batch_size = trial.suggest_categorical("batch_size", [128, 256, 512])
     # args.plr = trial.suggest_float("plr", 1e-4, 1e-2)
     # args.qlr = trial.suggest_float("qlr", 1e-4, 1e-2)
-    args.num_qs = trial.suggest_int("num_qs", 3, 30)
+    args.num_qs = trial.suggest_int("num_qs", 5, 20)
 
     # smooth
     # args.policy_smooth_reg = trial.suggest_float("policy_smooth_reg", 1e-4, 1e-2)
@@ -170,7 +170,7 @@ def objective(trial, args):
     #     "q_ind_uncertainty_reg", 0, 5)
     # ood penalty
     # args.q_ood_eps = trial.suggest_float("q_ood_eps", 1e-4, 1e-1)
-    args.q_ood_reg = trial.suggest_float("q_ood_reg", 0.1, 1000)
+    args.q_ood_reg = trial.suggest_float("q_ood_reg", 10, 500)
     # args.q_ood_uncertainty_reg = trial.suggest_float(
     #     "q_ood_uncertainty_reg", 0, 5)
 

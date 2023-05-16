@@ -1,19 +1,19 @@
  
 
 
-# bash tune.sh halfcheetah-random-v2  0 
-# bash tune.sh halfcheetah-expert-v2  1
-# bash tune.sh  halfcheetah-medium-v2  2
-# bash tune.sh halfcheetah-medium-expert-v2 3
-# bash tune.sh halfcheetah-medium-replay-v2 4
+# bash tune.sh halfcheetah-random-v2 halfcheetah_random_v2 0 
+# bash tune.sh halfcheetah-expert-v2 halfcheetah_expert_v2 1
+# bash tune.sh  halfcheetah-medium-v2 halfcheetah_medium_v2 2
+# bash tune.sh halfcheetah-medium-expert-v2 halfcheetah_medium_expert 3
+# bash tune.sh halfcheetah-medium-replay-v2 halfcheetah_medium_replay 4
 
-# bash tune.sh hopper-random-v2 hopper_random 5
+# bash tune.sh hopper-random-v2 hopper_random 0
 # bash tune.sh hopper-expert-v2 hopper_expert 2
 # bash tune.sh hopper-medium-v2 hopper_medium 3
-# bash tune.sh hopper-medium-expert-v2 hopper_random_medium_expert 8
-# bash tune.sh hopper-medium-replay-v2 hopper_random_medium_replay 9
+# bash tune.sh hopper-medium-expert-v2 hopper_medium_expert 8
+# bash tune.sh hopper-medium-replay-v2 hopper_medium_replay 9
 
-# bash tune.sh walker2d-random-v2 walker2d_random_tune 1
+# bash tune.sh walker2d-random-v2 walker2d_random 1
 # bash tune.sh walker2d-expert-v2 walker2d_expert 2
 # bash tune.sh walker2d-medium-v2 walker2d_medium 3
 # bash tune.sh walker2d-medium-expert-v2 walker2d_medium_expert 4     
@@ -23,7 +23,7 @@
 # bash tune.sh halfcheetah-medium-v2  halfcheetah_medium 1
 
 GTIMER_DISABLE=1 WANDB_RUN_GROUP=$2 CUDA_VISIBLE_DEVICES=$3 python -m scripts.sac --env_name $1 --seed 0 \
-    --norm_input --epoch 1000 --exp_prefix TUNE_MIN_BC_NOSCALE_SAC --tensorboard --wandb \
+    --norm_input --epoch 3000 --exp_prefix TUNE_REPORT --tensorboard --wandb \
     --policy_smooth_eps 0.000 --q_smooth_eps 0.000 \
     --policy_smooth_reg 0.0 --policy_smooth_eps 0.001 \
     --q_smooth_reg 0.0 --q_smooth_eps 0.001 \
